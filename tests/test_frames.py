@@ -1,0 +1,51 @@
+from datetime import date
+from decimal import Decimal
+
+import polars as pl
+from pydantic import BaseModel
+
+from arora_data.catalog import SeriesInfo
+from arora_data.frames import to_df
+
+
+class Price(BaseModel):
+    ticker: str
+    close: Decimal | None
+    on: date | None
+    volume: int | None
+
+
+def price(close):
+    return Price(ticker="X", close=close, on=date(2026, 10, 30), volume=1)
+
+
+def test_decimals_stay_exact_across_scales_and_sizes():
+    closes = ["0.1", "1234567890123456789012.123456", "1.5"]
+    df = to_df([price(Decimal(c)) for c in closes], Price)
+    assert isinstance(df.schema["close"], pl.Decimal)
+    assert df["close"].to_list() == [Decimal(c) for c in closes]
+
+
+def test_decimal_sum_has_no_float_error():
+    df = to_df([price(Decimal("0.1")), price(Decimal("0.2"))], Price)
+    assert df["close"].sum() == Decimal("0.3")
+
+
+def test_empty_result_keeps_typed_columns():
+    df = to_df([], Price)
+    assert df.shape == (0, 4)
+    assert df.schema["ticker"] == pl.String and df.schema["on"] == pl.Date and df.schema["volume"] == pl.Int64
+    assert isinstance(df.schema["close"], pl.Decimal)
+
+
+def test_all_blank_columns_keep_their_types():
+    df = to_df([Price(ticker="X", close=None, on=None, volume=None)], Price)
+    assert isinstance(df.schema["close"], pl.Decimal)
+    assert df.schema["on"] == pl.Date and df.schema["volume"] == pl.Int64
+
+
+def test_catalog_rows():
+    rows = [SeriesInfo(key="AAA", dataset=None, description="Yield", latest_date=date(2026, 9, 1))]
+    df = to_df(rows, SeriesInfo)
+    assert df.columns == ["key", "dataset", "description", "latest_date"]
+    assert df.schema["dataset"] == pl.String and df["latest_date"].to_list() == [date(2026, 9, 1)]
