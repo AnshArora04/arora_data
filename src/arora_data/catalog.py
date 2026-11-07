@@ -11,7 +11,7 @@ from datetime import date
 import asyncpg
 from pydantic import BaseModel, ConfigDict
 
-from arora_data._db import DEFAULT_LIMIT, check_cap, check_limit, connection, fetch
+from arora_data._db import connection, fetch
 
 # A MAX(date) with no index behind it reads the whole table, so bigger tables return no date.
 # shortcut: 1M is an estimate, revisit once table sizes are measured on prod.
@@ -190,7 +190,6 @@ SELECT c.relname::text AS name,
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') AND NOT c.relispartition
  ORDER BY c.relname
- LIMIT 500
 """
 
 _LIST_COLUMNS_SQL = """
@@ -205,7 +204,6 @@ SELECT a.attname::text AS name,
    AND c.relkind IN ('r', 'p') AND NOT c.relispartition
    AND a.attnum > 0 AND NOT a.attisdropped
  ORDER BY a.attnum
- LIMIT 500
 """
 
 
@@ -298,31 +296,30 @@ async def list_columns(schema: str, table: str) -> list[ColumnInfo]:
     return [ColumnInfo(**dict(r)) for r in rows]
 
 
-async def list_series(schema: str, table: str, limit: int = DEFAULT_LIMIT) -> list[SeriesInfo]:
+async def list_series(schema: str, table: str) -> list[SeriesInfo]:
     """Series in a time-series table, with each one's name and most recent date.
 
     Source: the table's vendor, per TABLES (FRED, FMP, BLS, BEA...). dataset is None outside
     indicators.*, where the same key can mean different series in different datasets.
-    description is None for tables with no name column. Raises RowCapError when the table has
-    more than limit series, and TimeoutError when the table is too big to group within the timeout.
+    description is None for tables with no name column. Raises TimeoutError when the table is too big
+    to group within the timeout.
     """
     key = f"{schema}.{table}"
     if key not in SERIES:
         raise ValueError(f"{key} has no series list")
-    check_limit(limit)
     key_col, name_col = SERIES[key]
     name_sql = f"max({name_col})" if name_col else "NULL::text"
     dataset_sql = "dataset" if schema == "indicators" else "NULL::text"
     # key, key_col and name_col are SERIES constants: the lookup above rejects anything else.
     sql = (
         f"SELECT {key_col} AS key, {dataset_sql} AS dataset, {name_sql} AS description, "
-        f"max(date)::date AS latest_date FROM {key} GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $1"
+        f"max(date)::date AS latest_date FROM {key} GROUP BY 1, 2 ORDER BY 1, 2"
     )
     # shortcut: this groups every row of the table, the one read here with no index bound. Fine while each
     # series table groups within the 5s timeout; switch to a skip scan (one index probe per series) once one doesn't.
     async with connection() as conn:
         try:
-            rows = check_cap(await fetch(conn, sql, limit + 1), limit)
+            rows = await fetch(conn, sql)
         except asyncpg.QueryCanceledError as err:
             raise TimeoutError(f"{key} is too big to list its series within the timeout") from err
     return [SeriesInfo(**dict(r)) for r in rows]

@@ -1,4 +1,4 @@
-"""The one way into the database: readonly_user, read-only transactions, bounded queries."""
+"""The one way into the database: readonly_user, read-only transactions, index-backed queries."""
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +12,6 @@ import asyncpg
 from dotenv import dotenv_values
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-DEFAULT_LIMIT = 1000
-MAX_LIMIT = 5000
 # shortcut: 5 is a guess that keeps us small next to the ingest jobs, raise it once readonly_user's limit is measured.
 POOL_SIZE = 5
 CLOSE_TIMEOUT = 10  # seconds a graceful pool close may take before its connections are dropped
@@ -21,10 +19,6 @@ CLOSE_TIMEOUT = 10  # seconds a graceful pool close may take before its connecti
 # One pool per event loop, because a pool only works on the loop that made it. Each value is a task, so callers that
 # arrive together share one pool and one login attempt.
 _pools: dict[asyncio.AbstractEventLoop, asyncio.Task[asyncpg.Pool]] = {}
-
-
-class RowCapError(ValueError):
-    """More rows matched than the limit allows."""
 
 
 def _dsn() -> str:
@@ -85,15 +79,3 @@ async def fetch(conn: asyncpg.Connection, sql: str, *args: Any) -> list[asyncpg.
         await conn.execute("SET LOCAL TIME ZONE 'America/New_York'")
         return await conn.fetch(sql, *args)
 
-
-def check_limit(limit: int) -> int:
-    if not 1 <= limit <= MAX_LIMIT:
-        raise ValueError(f"limit must be between 1 and {MAX_LIMIT}")
-    return limit
-
-
-def check_cap(rows: list[asyncpg.Record], limit: int) -> list[asyncpg.Record]:
-    """Raise rather than return a cut-off result. The query must ask for limit + 1 rows."""
-    if len(rows) > limit:
-        raise RowCapError(f"more than {limit} rows matched; narrow the range or raise limit (max {MAX_LIMIT})")
-    return rows

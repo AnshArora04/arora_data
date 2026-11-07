@@ -9,7 +9,7 @@ import datetime as dt
 from datetime import date
 from decimal import Decimal
 
-from arora_data._db import DEFAULT_LIMIT, check_cap, check_limit, connection, fetch
+from arora_data._db import connection, fetch
 from arora_data.catalog import SERIES, _Row
 
 # Price table: its extra column (the commodity tables have currency, the others vwap).
@@ -62,10 +62,9 @@ class Value(_Row):
     frequency: str | None
 
 
-def _check_range(start: date, end: date, limit: int) -> None:
+def _check_range(start: date, end: date) -> None:
     if start > end:
         raise ValueError("start must be on or before end")
-    check_limit(limit)
 
 
 def _filter(table: str, key: str, dataset: str | None) -> tuple[str, list[str]]:
@@ -82,41 +81,36 @@ def _filter(table: str, key: str, dataset: str | None) -> tuple[str, list[str]]:
 
 
 def _in_range(where: str, n: int) -> str:
-    return f"WHERE {where} AND date >= ${n + 1} AND date <= ${n + 2} ORDER BY date LIMIT ${n + 3}"
+    return f"WHERE {where} AND date >= ${n + 1} AND date <= ${n + 2} ORDER BY date"
 
 
-async def _read_prices(table: str, symbol: str, start: date, end: date, limit: int = DEFAULT_LIMIT) -> list[PriceBar]:
-    """Daily bars for one symbol, oldest first. Raises RowCapError when more than limit rows match."""
+async def _read_prices(table: str, symbol: str, start: date, end: date) -> list[PriceBar]:
+    """Daily bars for one symbol, oldest first."""
     if table not in _PRICE_TABLES:
         raise ValueError(f"{table} is not a price table")
     where, args = _filter(table, symbol, None)
-    _check_range(start, end, limit)
+    _check_range(start, end)
     extra = _PRICE_TABLES[table]
     vwap = "vwap" if extra == "vwap" else "NULL::numeric"
     currency = "currency::text" if extra == "currency" else "NULL::text"
     # table and the column names are constants from _PRICE_TABLES.
     sql = f"SELECT date, open, high, low, close, volume, {vwap} AS vwap, {currency} AS currency FROM {table} "
     async with connection() as conn:
-        rows = check_cap(await fetch(conn, sql + _in_range(where, len(args)), *args, start, end, limit + 1), limit)
+        rows = await fetch(conn, sql + _in_range(where, len(args)), *args, start, end)
     return [PriceBar(**dict(r)) for r in rows]
 
 
-async def _read_values(
-    table: str, key: str, start: date, end: date, limit: int = DEFAULT_LIMIT, dataset: str | None = None
-) -> list[Value]:
-    """One series' values, oldest first. indicators.* tables need dataset, because keys repeat across datasets.
-
-    Raises RowCapError when more than limit rows match.
-    """
+async def _read_values(table: str, key: str, start: date, end: date, dataset: str | None = None) -> list[Value]:
+    """One series' values, oldest first. indicators.* tables need dataset, because keys repeat across datasets."""
     if table not in _VALUE_TABLES:
         raise ValueError(f"{table} is not a value table")
     where, args = _filter(table, key, dataset)
-    _check_range(start, end, limit)
+    _check_range(start, end)
     labels = "units, frequency" if table in _LABELLED else "NULL::text AS units, NULL::text AS frequency"
     # table is a constant from _VALUE_TABLES.
     sql = f"SELECT date, value, {labels} FROM {table} "
     async with connection() as conn:
-        rows = check_cap(await fetch(conn, sql + _in_range(where, len(args)), *args, start, end, limit + 1), limit)
+        rows = await fetch(conn, sql + _in_range(where, len(args)), *args, start, end)
     return [Value(**dict(r)) for r in rows]
 
 

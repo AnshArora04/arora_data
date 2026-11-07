@@ -5,7 +5,6 @@ import datetime as dt
 from dataclasses import dataclass
 
 from arora_data import _readers
-from arora_data._db import DEFAULT_LIMIT
 from arora_data.catalog import _Row
 from arora_data.dates import today_et
 
@@ -43,12 +42,10 @@ class Freshness(_Row):
     stale: bool
 
 
-async def _read(
-    series: Series, start: dt.date, end: dt.date, limit: int = DEFAULT_LIMIT
-) -> list[_readers.PriceBar] | list[_readers.Value]:
+async def _read(series: Series, start: dt.date, end: dt.date) -> list[_readers.PriceBar] | list[_readers.Value]:
     if series.table in _readers._PRICE_TABLES:
-        return await _readers._read_prices(series.table, series.key, start, end, limit)
-    return await _readers._read_values(series.table, series.key, start, end, limit, series.dataset)
+        return await _readers._read_prices(series.table, series.key, start, end)
+    return await _readers._read_values(series.table, series.key, start, end, series.dataset)
 
 
 async def check_fresh(series: Series, today: dt.date | None = None) -> Freshness:

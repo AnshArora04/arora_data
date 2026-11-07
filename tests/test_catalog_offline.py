@@ -73,17 +73,6 @@ def test_dsn_missing(tmp_path, monkeypatch):
         _db._dsn()
 
 
-@pytest.mark.parametrize("limit", [0, -1, _db.MAX_LIMIT + 1])
-def test_limit_rejected(limit):
-    with pytest.raises(ValueError):
-        _db.check_limit(limit)
-
-
-@pytest.mark.parametrize("limit", [1, _db.MAX_LIMIT])
-def test_limit_accepted(limit):
-    assert _db.check_limit(limit) == limit
-
-
 def test_fetch_is_read_only_with_timeout():
     conn = FakeConn()
     asyncio.run(_db.fetch(conn, "SELECT 1"))
@@ -99,7 +88,6 @@ def test_fetch_is_read_only_with_timeout():
         lambda: catalog.list_series("market", "price_history"),
         lambda: catalog.list_series("ownership", "institutional_holder_analytics"),
         lambda: catalog.list_series("macro; DROP TABLE x; --", "observations"),
-        lambda: catalog.list_series("macro", "observations", limit=0),
     ],
 )
 def test_bad_input_rejected_before_connecting(call, no_connect):
@@ -127,34 +115,6 @@ def test_latest_date_only_reads_when_cheap(date_col, estimate, indexed, queries)
 def test_latest_date_blank_on_timeout():
     conn = FakeConn(error=asyncpg.QueryCanceledError("timeout"))
     assert asyncio.run(catalog._latest_date(conn, "macro.observations", "date", 10, [])) is None
-
-
-@pytest.mark.parametrize("rows, raises", [(5, False), (6, True)])
-def test_check_cap(rows, raises):
-    if raises:
-        with pytest.raises(_db.RowCapError):
-            _db.check_cap([{}] * rows, 5)
-    else:
-        assert len(_db.check_cap([{}] * rows, 5)) == rows
-
-
-def test_list_series_raises_instead_of_cutting_off(monkeypatch):
-    class SeriesConn(FakeConn):
-        async def fetch(self, sql, *args):
-            self.args = args
-            row = {"key": "A", "dataset": None, "description": None, "latest_date": None}
-            return [row] * args[0]
-
-    conn = SeriesConn()
-
-    @contextlib.asynccontextmanager
-    async def fake_connection():
-        yield conn
-
-    monkeypatch.setattr(catalog, "connection", fake_connection)
-    with pytest.raises(_db.RowCapError):
-        asyncio.run(catalog.list_series("macro", "observations", limit=3))
-    assert conn.args == (4,)
 
 
 def test_list_series_timeout_names_the_table(monkeypatch):

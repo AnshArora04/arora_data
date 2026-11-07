@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 import polars as pl
+import pytest
 from pydantic import BaseModel
 
 from arora_data.catalog import SeriesInfo
@@ -49,3 +50,18 @@ def test_catalog_rows():
     df = to_df(rows, SeriesInfo)
     assert df.columns == ["key", "dataset", "description", "latest_date"]
     assert df.schema["dataset"] == pl.String and df["latest_date"].to_list() == [date(2026, 9, 1)]
+
+
+def test_literal_columns_are_strings():
+    from arora_data.forex import FxBar
+
+    row = FxBar(pair="CADUSD", date=date(2026, 11, 6), route="inverted", open=None, high=None, low=None,
+                close=Decimal("0.71"), volume=None, vwap=None)
+    df = to_df([row], FxBar)
+    assert df.schema["route"] == pl.String and df["route"].to_list() == ["inverted"]
+
+
+def test_values_too_long_for_polars_raise_instead_of_turning_null():
+    rows = [price(Decimal("0.000000000000000000000000000001")), price(Decimal("123456789012"))]
+    with pytest.raises(ValueError, match="close"):
+        to_df(rows, Price)

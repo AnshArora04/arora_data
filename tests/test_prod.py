@@ -1,10 +1,11 @@
 """Tiny read-only checks against prod. Skipped when there is no .env."""
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, series, sync
+from arora_data import _db, _readers, catalog, forex, series, sync
+from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
 
@@ -91,9 +92,9 @@ async def _read_latest_year(table):
     key, dataset, latest = await _pick(table)
     start = latest - timedelta(days=365)
     if table in _readers._PRICE_TABLES:
-        rows = await _readers._read_prices(table, key, start, latest, limit=_db.MAX_LIMIT)
+        rows = await _readers._read_prices(table, key, start, latest)
     else:
-        rows = await _readers._read_values(table, key, start, latest, limit=_db.MAX_LIMIT, dataset=dataset)
+        rows = await _readers._read_values(table, key, start, latest, dataset=dataset)
     return rows, latest
 
 
@@ -152,13 +153,72 @@ def test_list_series():
     assert all(s.dataset is None for s in series)
 
 
-def test_list_series_raises_at_the_cap():
-    with pytest.raises(_db.RowCapError):
-        sync.list_series("macro", "observations", limit=5)
-
-
 def test_list_series_keeps_datasets_apart():
     series = sync.list_series("indicators", "census_intltrade")
     pairs = [(s.key, s.dataset) for s in series]
     assert len(pairs) == len(set(pairs))
     assert len({s.key for s in series}) < len(pairs)
+
+
+def _last_days(n):
+    end = today_et()
+    return end - timedelta(days=n), end
+
+
+def test_forex_stored_pair_matches_the_table():
+    start, end = _last_days(10)
+    rows = sync.forex("USD", "CAD", start, end)
+    bars = sync._sync(_readers._read_prices)("forex.prices", "USDCAD", start, end)
+    assert rows and [(r.date, r.route, r.close, r.high) for r in rows] == [(b.date, "stored", b.close, b.high) for b in bars]
+
+
+def test_forex_inverse_is_one_over_the_stored_pair():
+    start, end = _last_days(10)
+    usd_cad, cad_usd = sync.forex("USD", "CAD", start, end), sync.forex("CAD", "USD", start, end)
+    flip = Context(prec=forex.SIG_DIGITS).divide
+    assert cad_usd and [(r.date, r.route, r.close, r.high, r.volume, r.vwap) for r in cad_usd] == [
+        (r.date, "inverted", flip(1, r.close), flip(1, r.low), r.volume, flip(1, r.vwap)) for r in usd_cad
+    ]
+
+
+async def _cross_without_stored(pair, start, end):
+    stored = {s.key for s in await catalog.list_series("forex", "prices")} - {pair}
+    route, legs = forex._plan(pair[:3], pair[3:], stored)
+    read = {s: await _readers._read_prices("forex.prices", s, start, end) for s, _ in legs}
+    usd = {s: forex._usd_per(read[s], flip) for s, flip in legs}
+    return route, forex._bars(pair, route, legs, read, usd)
+
+
+def test_forex_cross_tracks_the_stored_cross():
+    # EURGBP is stored, so crossing it through EURUSD and GBPUSD must land close to it on every shared day.
+    start, end = _last_days(365)
+    route, crossed = sync._sync(_cross_without_stored)("EURGBP", start, end)
+    stored = {r.date: r for r in sync.forex("EUR", "GBP", start, end)}
+    shared = [r for r in crossed if r.date in stored]
+    assert route == "crossed" and len(shared) > 200
+    assert max(abs(r.close / stored[r.date].close - 1) for r in shared) < Decimal("0.01")
+    assert max(abs(r.open / stored[r.date].open - 1) for r in shared) < Decimal("0.01")
+
+
+def test_forex_crosses_two_new_usd_legs():
+    rows = sync.forex("BRL", "INR", *_last_days(10))
+    assert rows and {r.route for r in rows} == {"crossed"} and all(r.close > 0 for r in rows)
+
+
+def test_forex_rejects_a_currency_with_no_usd_pair():
+    with pytest.raises(ValueError, match="XAU has no stored USD pair"):
+        sync.forex("XAU", "USD", *_last_days(10))
+
+
+def test_forex_stored_symbols_match_the_series_list():
+    assert sync._sync(forex._stored)() == {s.key for s in sync.list_series("forex", "prices")}
+
+
+def test_forex_all_returns_every_pair_once():
+    stored = {s.key for s in sync.list_series("forex", "prices")}
+    rows = sync.forex("ALL", "ALL", *_last_days(7))
+    pairs = {r.pair: r.route for r in rows}
+    n = len(forex._currencies(stored))
+    assert len(pairs) == n * (n - 1) // 2
+    assert {p for p, route in pairs.items() if route == "stored"} == stored
+    assert "inverted" not in pairs.values()

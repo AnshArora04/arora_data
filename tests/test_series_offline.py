@@ -94,11 +94,11 @@ def test_read_picks_the_reader_for_the_table(monkeypatch):
 
     monkeypatch.setattr(_readers, "_read_prices", prices)
     monkeypatch.setattr(_readers, "_read_values", values)
-    asyncio.run(series._read(Series("forex.prices", "USDCAD", frequency="daily"), TODAY, TODAY, 5))
-    asyncio.run(series._read(Series("indicators.bls", "X", dataset="d"), TODAY, TODAY, 5))
+    asyncio.run(series._read(Series("forex.prices", "USDCAD", frequency="daily"), TODAY, TODAY))
+    asyncio.run(series._read(Series("indicators.bls", "X", dataset="d"), TODAY, TODAY))
     assert calls == [
-        ("prices", ("forex.prices", "USDCAD", TODAY, TODAY, 5)),
-        ("values", ("indicators.bls", "X", TODAY, TODAY, 5, "d")),
+        ("prices", ("forex.prices", "USDCAD", TODAY, TODAY)),
+        ("values", ("indicators.bls", "X", TODAY, TODAY, "d")),
     ]
 
 
