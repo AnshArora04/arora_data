@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, commodities, crypto, forex, series, sync
+from arora_data import _db, _readers, catalog, commodities, crypto, forex, index, series, sync
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -273,3 +273,37 @@ def test_crypto_coins_are_the_stored_usd_symbols_and_every_name_is_stored():
     assert sync._sync(crypto._symbols)() == stored
     assert {c + "USD" for c in crypto.NAMES} <= stored
     assert {r.coin + "USD" for r in sync.crypto("ALL", *_last_days(10))} == stored
+
+
+def test_index_is_the_table():
+    start, end = _last_days(10)
+    rows = sync.index("s&p 500", start, end)
+    bars = sync._sync(_readers._read_prices)("equity_indexes.prices", "^GSPC", start, end)
+    assert rows and [(r.index, r.date, r.open, r.high, r.low, r.close, r.volume, r.vwap) for r in rows] == [
+        ("^GSPC", b.date, b.open, b.high, b.low, b.close, b.volume, b.vwap) for b in bars]
+    assert sync.index("spx", start, end) == rows
+
+
+def test_index_names_cover_exactly_the_stored_indexes():
+    stored = {s.key for s in sync.list_series("equity_indexes", "prices")}
+    assert sync._sync(index._symbols)() == stored == set(index.INDEXES)
+    assert {r.index for r in sync.index("ALL", *_last_days(10))} == stored
+
+
+def test_index_in_another_currency_is_the_level_times_forex():
+    start, end = _last_days(20)
+    level = {r.date: r.close for r in sync.index("^N225", start, end)}
+    rate = {r.date: r.close for r in sync.forex("JPY", "EUR", start - commodities.FX_LOOKBACK, end)}
+    eur = sync.index("nikkei 225", start, end, "eur")
+    times = Context(prec=forex.SIG_DIGITS).multiply
+    assert eur and [(r.date, r.close, r.quote_date) for r in eur] == [
+        (d, times(level[d], rate[max(x for x in rate if x <= d)]), max(x for x in rate if x <= d)) for d in level]
+
+
+def test_index_all_in_usd_leaves_out_the_volatility_series_and_keeps_usd_indexes_as_stored():
+    start, end = _last_days(10)
+    rows = sync.index("ALL", start, end, "USD")
+    assert {r.index for r in rows} == {s for s, (_, cur) in index.INDEXES.items() if cur}
+    gspc = [r for r in rows if r.index == "^GSPC"]
+    assert [(r.date, r.high, r.close, r.route) for r in gspc] == [
+        (r.date, r.high, r.close, "stored") for r in sync.index("^GSPC", start, end)]
