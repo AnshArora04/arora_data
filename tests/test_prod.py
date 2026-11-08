@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, commodities, forex, series, sync
+from arora_data import _db, _readers, catalog, commodities, crypto, forex, series, sync
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -246,3 +246,30 @@ def test_commodities_in_eur_are_usd_times_forex():
 def test_commodities_all_serves_every_mapped_symbol():
     assert {s for s, *_ in commodities.COMMODITIES.values()} <= {s.key for s in sync.list_series("commodities", "prices")}
     assert {r.commodity for r in sync.commodities("ALL", *_last_days(10))} == set(commodities.COMMODITIES)
+
+
+def test_crypto_usd_is_the_table():
+    start, end = _last_days(10)
+    rows = sync.crypto("bitcoin", start, end)
+    bars = sync._sync(_readers._read_prices)("crypto.prices", "BTCUSD", start, end)
+    assert rows and [(r.date, r.route, r.open, r.high, r.low, r.close, r.volume_usd, r.vwap) for r in rows] == [
+        (b.date, "stored", b.open, b.high, b.low, b.close, b.volume, b.vwap) for b in bars]
+
+
+def test_crypto_in_eur_is_usd_times_forex_carrying_weekends():
+    start, end = _last_days(20)
+    usd = {r.date: r.close for r in sync.crypto("ETH", start, end)}
+    rate = {r.date: r.close for r in sync.forex("USD", "EUR", start - commodities.FX_LOOKBACK, end)}
+    eur = sync.crypto("ETH", start, end, "eur")
+    times = Context(prec=forex.SIG_DIGITS).multiply
+    assert eur and [(r.close, r.quote_date) for r in eur] == [
+        (times(usd[r.date], rate[r.quote_date]), max(d for d in rate if d <= r.date)) for r in eur]
+    # FMP has Sunday forex bars (the market opens Sunday evening), so only some weekend days carry an earlier rate.
+    assert any(r.quote_date < r.date for r in eur if r.date.weekday() >= 5)
+
+
+def test_crypto_coins_are_the_stored_usd_symbols_and_every_name_is_stored():
+    stored = {s.key for s in sync.list_series("crypto", "prices")}
+    assert sync._sync(crypto._symbols)() == stored
+    assert {c + "USD" for c in crypto.NAMES} <= stored
+    assert {r.coin + "USD" for r in sync.crypto("ALL", *_last_days(10))} == stored
