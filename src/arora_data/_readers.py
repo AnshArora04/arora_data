@@ -15,7 +15,6 @@ from arora_data.catalog import SERIES, _Row
 # Price table: its extra column (the commodity tables have currency, the others vwap).
 _PRICE_TABLES: dict[str, str] = {
     "commodities.prices": "currency",
-    "commodities.prices_extended": "currency",
     "crypto.prices": "vwap",
     "equity_indexes.prices": "vwap",
     "forex.prices": "vwap",

@@ -41,8 +41,7 @@ SCHEMAS: dict[str, str] = {
 
 # "schema.table": (description, business-date column or None).
 TABLES: dict[str, tuple[str, str | None]] = {
-    "commodities.prices": ("FMP. Daily prices for core commodities.", "date"),
-    "commodities.prices_extended": ("FMP. Daily prices for the extended commodity and futures list.", "date"),
+    "commodities.prices": ("FMP. Daily prices for all 40 FMP commodity and futures symbols.", "date"),
     "crypto.prices": ("FMP. Daily crypto prices.", "date"),
     "equity_indexes.prices": ("FMP. Daily market index prices.", "date"),
     "estimates.analyst_grades": ("FMP. Individual analyst grade changes.", "date"),
@@ -167,7 +166,6 @@ SERIES: dict[str, tuple[str, str | None]] = {
     "macro.observations": ("series_id", "series_name"),
     "macro.economic_indicators": ("indicator", None),
     "commodities.prices": ("symbol", None),
-    "commodities.prices_extended": ("symbol", None),
     "crypto.prices": ("symbol", None),
     "equity_indexes.prices": ("symbol", None),
     "forex.prices": ("symbol", None),
