@@ -5,9 +5,11 @@ an index's members trade in (None for the volatility series). In another currenc
 forex(currency, quote) that day, or the latest earlier rate when that day has none; quote_date names the rate's day.
 Rows are served as stored:
 - volume is unreliable: the volatility series, ^RUI, ^RUA, ^RLG, ^RLV, ^W5000, ^SPXEW and ^SP500TR are all zeros,
-  ^MID is partly zeros, and ^OEX repeats ^GSPC's volume;
-- weekend bars are either real sessions (^NSEI's Budget-day and Diwali sessions) or FMP placeholders at the Friday
-  level with zero volume (the Russell indexes on 2025-04-26, ^TWII on 2026-09-20);
+  ^MID is partly zeros, ^OEX repeats ^GSPC's volume, and ^IBEX repeats some days' volume;
+- FMP serves placeholder bars, flat (open = high = low = close) or with zero volume, on weekdays and weekends alike:
+  226 flat zero-volume weekdays (most on ^GSPTSE and 000001.SS), Sundays on ^GSPC and ^N225 in 1932-1956, the Russell
+  indexes on Sat 2025-04-26 and ^TWII on Sun 2026-09-20 (full-history scan, 2026-11-08). ^NSEI's weekend bars are real
+  sessions (Union Budget days, Diwali's Muhurat trading);
 - gaps of over a week are market closures (Golden Week, Lunar New Year, Chuseok), not missing data.
 """
 from __future__ import annotations
