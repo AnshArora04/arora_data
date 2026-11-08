@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, forex, series, sync
+from arora_data import _db, _readers, catalog, commodities, forex, series, sync
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -222,3 +222,27 @@ def test_forex_all_returns_every_pair_once():
     assert len(pairs) == n * (n - 1) // 2
     assert {p for p, route in pairs.items() if route == "stored"} == stored
     assert "inverted" not in pairs.values()
+
+
+@pytest.mark.parametrize("code, cents", [("GC", 1), ("ZC", 100)])
+def test_commodities_usd_is_the_table_in_dollars(code, cents):
+    start, end = _last_days(10)
+    rows = sync.commodities(code, start, end)
+    bars = sync._sync(_readers._read_prices)("commodities.prices", commodities.COMMODITIES[code][0], start, end)
+    assert rows and [(r.date, r.route, r.open * cents, r.high * cents, r.low * cents, r.close * cents) for r in rows] == [
+        (b.date, "stored", b.open, b.high, b.low, b.close) for b in bars]
+
+
+def test_commodities_in_eur_are_usd_times_forex():
+    start, end = _last_days(30)
+    usd = {r.date: r.close for r in sync.commodities("GC", start, end)}
+    rate = {r.date: r.close for r in sync.forex("USD", "EUR", start - commodities.FX_LOOKBACK, end)}
+    eur = sync.commodities("GC", start, end, "eur")
+    times = Context(prec=forex.SIG_DIGITS).multiply
+    assert eur and [r.close for r in eur] == [times(usd[r.date], rate[r.quote_date]) for r in eur]
+    assert all(r.quote_date <= r.date for r in eur) and sum(r.quote_date == r.date for r in eur) > len(eur) / 2
+
+
+def test_commodities_all_serves_every_mapped_symbol():
+    assert {s for s, *_ in commodities.COMMODITIES.values()} <= {s.key for s in sync.list_series("commodities", "prices")}
+    assert {r.commodity for r in sync.commodities("ALL", *_last_days(10))} == set(commodities.COMMODITIES)
