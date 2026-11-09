@@ -1,10 +1,10 @@
 """Tiny read-only checks against prod. Skipped when there is no .env."""
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, commodities, crypto, forex, index, series, sync
+from arora_data import _db, _readers, catalog, commodities, crypto, forex, index, series, sync, treasury
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -307,3 +307,22 @@ def test_index_all_in_usd_leaves_out_the_volatility_series_and_keeps_usd_indexes
     gspc = [r for r in rows if r.index == "^GSPC"]
     assert [(r.date, r.high, r.close, r.route) for r in gspc] == [
         (r.date, r.high, r.close, "stored") for r in sync.index("^GSPC", start, end)]
+
+
+def test_treasury_is_the_table():
+    start, end = _last_days(10)
+    stored = query("SELECT date, month3, year10, year30 FROM macro.treasury_rates WHERE date BETWEEN $1 AND $2 ORDER BY date",
+                   start, end)
+    assert stored and [(r.date, r.yield_pct) for r in sync.treasury(start, end, "10y")] == [
+        (r["date"], r["year10"]) for r in stored if r["year10"] is not None]
+    rows = sync.treasury(start, end)
+    assert {(r.tenor, r.date): r.yield_pct for r in rows if r.tenor in ("3M", "30Y")} == {
+        (t, r["date"]): r[c] for t, c in (("3M", "month3"), ("30Y", "year30")) for r in stored if r[c] is not None}
+
+
+def test_treasury_tenors_are_the_table_columns_and_its_gaps_are_left_out():
+    columns = {c.name for c in sync.list_columns("macro", "treasury_rates")} - {"date", "source", "ingested_at"}
+    assert set(treasury.TENORS.values()) == columns
+    # Columbus Day 2010-10-11 is stored with no values.
+    assert [r.date for r in sync.treasury(date(2010, 10, 8), date(2010, 10, 12), "10Y")] == [
+        date(2010, 10, 8), date(2010, 10, 12)]
