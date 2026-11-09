@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from arora_data import _db, catalog, commodities as _commodities, crypto as _crypto, forex as _forex, index as _index, series, treasury as _treasury
+from arora_data import _db, catalog, commodities as _commodities, crypto as _crypto, forex as _forex, index as _index, series, treasury as _treasury, treasury_curve as _treasury_curve
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -39,3 +39,4 @@ commodities = _sync(_commodities.commodities)
 crypto = _sync(_crypto.crypto)
 index = _sync(_index.index)
 treasury = _sync(_treasury.treasury)
+treasury_curve = _sync(_treasury_curve.treasury_curve)

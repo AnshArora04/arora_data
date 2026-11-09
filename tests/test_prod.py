@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, catalog, commodities, crypto, forex, index, series, sync, treasury
+from arora_data import _db, _readers, catalog, commodities, crypto, forex, index, series, sync, treasury, treasury_curve
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -326,3 +326,18 @@ def test_treasury_tenors_are_the_table_columns_and_its_gaps_are_left_out():
     # Columbus Day 2010-10-11 is stored with no values.
     assert [r.date for r in sync.treasury(date(2010, 10, 8), date(2010, 10, 12), "10Y")] == [
         date(2010, 10, 8), date(2010, 10, 12)]
+
+
+def test_treasury_curve_at_a_tenor_is_the_stored_yield():
+    start, end = _last_days(30)
+    stored = {r.date: r.yield_pct for r in sync.treasury(start, end, "10Y")}
+    curve = sync.treasury_curve("10Y", start, end)
+    assert stored and {p.date for p in curve} == set(stored)
+    assert all(abs(p.par_yield - stored[p.date]) < Decimal("1e-8") and p.zero_rate > 0 for p in curve)
+
+
+def test_treasury_curve_is_never_extrapolated_past_the_days_longest_tenor():
+    # No 30Y was stored from 2002-02-19 to 2006-02-08.
+    assert [p.date for p in sync.treasury_curve("25Y", date(2002, 2, 15), date(2006, 2, 9))] == [
+        date(2002, 2, 15), date(2006, 2, 9)]
+    assert len(sync.treasury_curve("20Y", date(2002, 2, 15), date(2006, 2, 9))) > 900
