@@ -339,8 +339,10 @@ MUTATIONS = [
 
 
 def tests_pass() -> bool:
-    run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"], cwd=ROOT, capture_output=True)
-    return run.returncode == 0
+    # Offline tests first: most mutations die there in seconds, so the slow prod tests run only for the rest.
+    pytest = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"]
+    return all(subprocess.run(pytest + [arg], cwd=ROOT, capture_output=True).returncode == 0
+               for arg in ("--ignore=tests/test_prod.py", "tests/test_prod.py"))
 
 
 def main() -> int:
