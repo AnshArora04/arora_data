@@ -66,6 +66,8 @@ async def treasury(start: dt.date, end: dt.date | None = None, tenor: str | None
     """
     end = end or today_et()
     _readers._check_range(start, end)
+    if not isinstance(tenor, str | None):
+        raise ValueError(f"{tenor!r} is not a tenor: use one of {', '.join(TENORS)}")
     picked = list(TENORS) if tenor is None or tenor.strip().upper() == ALL else [_resolve(tenor)]
     rows = await _rows(start, end)
     return [TreasuryRate(tenor=t, date=r["date"], yield_pct=r[TENORS[t]])

@@ -61,7 +61,7 @@ def test_tenors_are_in_maturity_order_and_columns_are_unique():
     assert len(set(COLUMNS)) == 12
 
 
-@pytest.mark.parametrize("tenor", ["10", "4M", "10 years", "yield10", ""])
+@pytest.mark.parametrize("tenor", ["10", "4M", "10 years", "yield10", "", 10])
 def test_bad_tenor_rejected_before_any_read(db, tenor):
     with pytest.raises(ValueError, match="is not a tenor: use one of 1M, 2M, 3M"):
         run(tenor)

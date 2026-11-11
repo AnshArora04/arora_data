@@ -10,7 +10,7 @@ from arora_data import treasury as tr, treasury_curve as tc
 
 D1, D2, D3 = date(2026, 11, 4), date(2026, 11, 5), date(2026, 11, 6)
 COLUMNS = list(tr.TENORS.values())
-METHODS = list(tc.WARNINGS)
+METHODS = list(tc.METHODS)
 REAL = {"month1": "3.90", "month2": "3.92", "month3": "3.95", "month6": "3.85", "year1": "3.70", "year2": "3.55",
         "year3": "3.55", "year5": "3.65", "year7": "3.85", "year10": "4.10", "year20": "4.65", "year30": "4.70"}
 
@@ -125,15 +125,19 @@ def test_maturity_in_any_case_or_spacing_is_named_as_written(db):
     assert run("18M") == [p.model_copy(update={"maturity": "18M"}) for p in run("1.5Y")]
 
 
-def test_linear_par_warns_and_flat_forward_does_not(db):
-    with pytest.warns(UserWarning, match="linear_par is not arbitrage-free"):
+def test_linear_par_warns_on_every_call_and_flat_forward_does_not(db):
+    with pytest.warns(tc.MethodWarning, match="linear_par is not arbitrage-free"):
         asyncio.run(tc.treasury_curve("4Y", D1, D3, "linear_par"))
+    with warnings.catch_warnings(record=True) as caught:
+        for _ in range(2):
+            asyncio.run(tc.treasury_curve("4Y", D1, D3, "linear_par"))
+    assert [w.category for w in caught] == [tc.MethodWarning] * 2
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         asyncio.run(tc.treasury_curve("4Y", D1, D3))
 
 
-@pytest.mark.parametrize("maturity", ["0M", "0.5M", "31Y", "30.5Y", "2W", "4", "Y", "", "4YY", "-1Y"])
+@pytest.mark.parametrize("maturity", ["0M", "0.5M", "31Y", "30.5Y", "2W", "4", "Y", "", "4YY", "-1Y", 4, None])
 def test_bad_maturity_rejected_before_any_read(db, maturity):
     with pytest.raises(ValueError, match="is not a maturity|is outside 1M to 30Y"):
         run(maturity)

@@ -17,6 +17,7 @@ import datetime as dt
 import re
 import warnings
 from bisect import bisect_left
+from collections.abc import Callable
 from decimal import Context, Decimal, localcontext
 
 from arora_data import _readers, treasury as _tr
@@ -25,13 +26,13 @@ from arora_data.dates import today_et
 from arora_data.forex import SIG_DIGITS
 
 DEFAULT = "flat_forward"
-WARNINGS: dict[str, str | None] = {
-    "flat_forward": None,
-    "linear_par": "linear_par is not arbitrage-free: its forward rates kink at each tenor. flat_forward is the default.",
-}
 _PREC = SIG_DIGITS + 8  # working digits; results are rounded to SIG_DIGITS
 _MATURITY = re.compile(r"(\d+(?:\.\d+)?)([MY])")
-_HALF, _ONE, _TWO = Decimal("0.5"), Decimal(1), Decimal(2)
+_HALF, _ONE = Decimal("0.5"), Decimal(1)
+
+
+class MethodWarning(UserWarning):
+    """A method the research advises against; shown on every call, not once per session."""
 
 
 class CurvePoint(_Row):
@@ -47,7 +48,7 @@ class CurvePoint(_Row):
 
 
 def _years(maturity: str) -> Decimal:
-    match = _MATURITY.fullmatch(maturity)
+    match = isinstance(maturity, str) and _MATURITY.fullmatch("".join(maturity.split()).upper())
     if not match:
         raise ValueError(f"{maturity!r} is not a maturity: use months or years, such as 18M, 4Y or 2.5Y")
     n = Decimal(match[1])
@@ -88,11 +89,15 @@ def _ln_df_at(times: list[Decimal], ln_dfs: list[Decimal], t: Decimal) -> Decima
 def _flat_forward(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
     """Par yield and zero rate (fractions) at t, bootstrapping the nodes (years, yield) up to the first at or past t."""
     times, ln_dfs = [Decimal(0)], [Decimal(0)]
+    half: list[Decimal] = []  # discount factors at 0.5, 1, 1.5, ... years, as far as the curve is built
     for node, y in nodes:
         if node <= 1:
             ln_df = _bill_ln_df(node, y)
         else:
-            ln_df = _solve_par(times, ln_dfs, node, y)
+            while _HALF * (len(half) + 1) <= times[-1]:
+                half.append(_ln_df_at(times, ln_dfs, _HALF * (len(half) + 1)).exp())
+            ln_df, segment = _solve_par(times[-1], ln_dfs[-1], sum(half), node, y)
+            half += segment
         times.append(node)
         ln_dfs.append(ln_df)
         if node >= t:
@@ -100,27 +105,42 @@ def _flat_forward(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Dec
     ln_df = _ln_df_at(times, ln_dfs, t)
     if t <= 1:
         return _zero(t, ln_df), _zero(t, ln_df)
+    if t % _HALF == 0:  # on the six-month grid, every coupon's discount factor is already known
+        n = int(t / _HALF)
+        return 2 * (_ONE - half[n - 1]) / sum(half[:n]), _zero(t, ln_df)
     pay, accrued = _coupons(t)
     annuity = sum(_ln_df_at(times, ln_dfs, s).exp() for s in pay)
     return 2 * (_ONE - ln_df.exp()) / (annuity - accrued), _zero(t, ln_df)
 
 
-def _solve_par(times: list[Decimal], ln_dfs: list[Decimal], node: Decimal, y: Decimal) -> Decimal:
-    """The log discount factor at node that prices a bond with coupon y (paid every six months) at par."""
-    pay = [node - _HALF * k for k in range(int(node / _HALF))][::-1]  # nodes past 1Y are whole years
-    last_t, last_ln = times[-1], ln_dfs[-1]
-    fixed = sum(_ln_df_at(times, ln_dfs, s).exp() for s in pay if s <= last_t)
-    weights = [(s - last_t) / (node - last_t) for s in pay if s > last_t]
+def _segment(x: Decimal, last_ln: Decimal, span: Decimal, m: int) -> list[Decimal]:
+    """Discount factors at the m six-monthly coupons back from a node with log discount factor x, oldest first.
+    Linear in log discount factor, so each is the next one times the same ratio: two exps, not m."""
+    dfs, ratio = [x.exp()], ((last_ln - x) * _HALF / span).exp()
+    for _ in range(m - 1):
+        dfs.append(dfs[-1] * ratio)
+    return dfs[::-1]
+
+
+def _solve_par(last_t: Decimal, last_ln: Decimal, fixed: Decimal, node: Decimal,
+               y: Decimal) -> tuple[Decimal, list[Decimal]]:
+    """The log discount factor at node that prices a bond with coupon y (paid every six months) at par, and the
+    discount factors at its coupons after last_t. fixed is the sum of those at or before last_t."""
+    span = node - last_t
+    m = 0
+    while node - _HALF * m > last_t:  # nodes past 1Y are whole years, so coupons fall every six months back
+        m += 1
+    weights = [1 - _HALF * j / span for j in range(m)][::-1]
     c = y / 2
     x = _bill_ln_df(node, y)  # start from a flat curve at y
     for _ in range(50):
-        dfs = [(last_ln + w * (x - last_ln)).exp() for w in weights]
+        dfs = _segment(x, last_ln, span, m)
         price = c * (fixed + sum(dfs)) + dfs[-1] - _ONE
         slope = c * sum(w * df for w, df in zip(weights, dfs)) + dfs[-1]
         step = price / slope
         x -= step
         if abs(step) < Decimal(10) ** (4 - _PREC):
-            return x
+            return x, _segment(x, last_ln, span, m)
     raise ArithmeticError(f"no par solution at {node}Y for yield {y}")
 
 
@@ -146,10 +166,15 @@ def _linear_par(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decim
     return par(t), _zero(t, dfs[-1].ln())
 
 
-_METHODS = {"flat_forward": _flat_forward, "linear_par": _linear_par}
+# Method: its function, and the warning it emits on every call (None for none).
+METHODS: dict[str, tuple[Callable[[list[tuple[Decimal, Decimal]], Decimal], tuple[Decimal, Decimal]], str | None]] = {
+    "flat_forward": (_flat_forward, None),
+    "linear_par": (_linear_par,
+                   "linear_par is not arbitrage-free: its forward rates kink at each tenor. flat_forward is the default."),
+}
 
 
-def _point(maturity: str, t: Decimal, day: dt.date, stored: dict[str, Decimal], method: str) -> CurvePoint | None:
+def _point(maturity: str, t: Decimal, day: dt.date, stored: dict[str, Decimal], method: Callable) -> CurvePoint | None:
     tenors = [k for k in _tr.TENORS if k in stored]
     if not tenors or _TENOR_YEARS[tenors[-1]] < t:
         return None
@@ -158,7 +183,7 @@ def _point(maturity: str, t: Decimal, day: dt.date, stored: dict[str, Decimal], 
     nodes = [(_TENOR_YEARS[k], stored[k] / 100) for k in tenors]
     with localcontext() as ctx:
         ctx.prec = _PREC
-        par, zero = _METHODS[method](nodes, t)
+        par, zero = method(nodes, t)
     out = Context(prec=SIG_DIGITS).plus
     return CurvePoint(maturity=maturity, date=day, par_yield=out(par * 100), zero_rate=out(zero * 100),
                       lower=lower, upper=upper)
@@ -168,20 +193,22 @@ async def treasury_curve(maturity: str, start: dt.date, end: dt.date | None = No
                          method: str = DEFAULT) -> list[CurvePoint]:
     """Par yield and zero rate at one maturity, per day from start to end (default: today in US/Eastern). Source: FMP.
 
-    maturity is months or years from 1M to 30Y, such as "18M", "4Y" or "2.5Y" (any case). method is one of WARNINGS;
-    a method with a warning there emits it as a UserWarning. A bad maturity or method raises ValueError.
+    maturity is months or years from 1M to 30Y, such as "18M", "4Y" or "2.5Y" (any case). method is one of METHODS;
+    a method with a warning there emits it as a MethodWarning on every call. A bad maturity or method raises ValueError.
     """
     end = end or today_et()
     _readers._check_range(start, end)
+    t = _years(maturity)
     key = "".join(maturity.split()).upper()
-    t = _years(key)
     if not _TENOR_YEARS["1M"] <= t <= _TENOR_YEARS["30Y"]:
         raise ValueError(f"{maturity!r} is outside 1M to 30Y")
-    if method not in _METHODS:
-        raise ValueError(f"{method!r} is not a method: use one of {', '.join(_METHODS)}")
-    if WARNINGS[method]:
-        warnings.warn(WARNINGS[method], UserWarning, stacklevel=2)
+    if method not in METHODS:
+        raise ValueError(f"{method!r} is not a method: use one of {', '.join(METHODS)}")
+    fn, warning = METHODS[method]
+    if warning:
+        # No registry, so it is not deduplicated: warnings.warn shows a warning once per calling line.
+        warnings.warn_explicit(warning, MethodWarning, __file__, 0)
     rows = await _tr._rows(start, end)
-    points = (_point(key, t, r["date"], {k: r[c] for k, c in _tr.TENORS.items() if r[c] is not None}, method)
+    points = (_point(key, t, r["date"], {k: r[c] for k, c in _tr.TENORS.items() if r[c] is not None}, fn)
               for r in rows)
     return [p for p in points if p]
