@@ -4,8 +4,6 @@ The table holds one row per day with a column per tenor; treasury() serves one r
 with no value that day is left out. Rows are served as stored:
 - tenors start or pause with Treasury's own history: 1M from 2001-07-31, 2M from 2018-10-16, 20Y from 1993-10-01,
   and no 30Y between 2002-02-15 and 2006-02-09;
-- the one weekend row, Sat 2001-03-31, is an FMP placeholder with an inverted curve (10Y 4.14 against 4.93 the day
-  before) and the only 1M and 2M values before July 2001;
 - 2010-10-11 (Columbus Day) has no values, so it never appears.
 """
 from __future__ import annotations
