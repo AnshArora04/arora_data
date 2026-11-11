@@ -15,8 +15,9 @@ Methods:
 - monotone_convex: Hagan and West's monotone convex forwards (Applied Mathematical Finance, 2006; Treasury's method
   since 2021-12-06), in its basic form without the positivity amendment. Forwards are continuous and, where the
   tenors' average forwards rise or fall, keep doing so between them, from today to the last tenor. Each tenor moves
-  its neighbours slightly, so every day's tenors are solved together. It works in float for speed, the one exception
-  to Decimal here: about 15 digits inside, served rounded to 12, so the last digit can be one off an exact calculation.
+  its neighbours slightly, so every day's tenors are solved together. It works in float for speed, one of two
+  exceptions to Decimal here (with nss): about 15 digits inside, served rounded to 12, so the last digit can be one off
+  an exact calculation.
 - nss: a Nelson-Siegel-Svensson curve fitted to each day's flat_forward zero rates at the stored tenors, by least
   squares over a grid of its two decay times. Needs 6 tenors that day, and works in float (numpy). Warns: a fit misses
   the stored tenors; at the 10Y by 2 bp on a typical day and up to 27 bp (1990-2026), so it is not for looking up.
