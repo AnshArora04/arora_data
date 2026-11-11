@@ -1,5 +1,6 @@
 """treasury_curve() methods, nodes, gaps and input checks, with the database faked."""
 import asyncio
+import re
 import warnings
 from datetime import date
 from decimal import Decimal, localcontext
@@ -90,7 +91,7 @@ def test_discount_factors_fall_and_zero_rates_lie_near_the_curve(db, method):
     assert all(a > b for a, b in zip(dfs, dfs[1:]))
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", ["flat_forward", "linear_par"])
 def test_a_longer_tenor_never_moves_a_shorter_maturity(db, method):
     before = on("4Y", method=method), on("25Y", method=method)
     db[0][0] = {**db[0][0], "year20": Decimal("6.00")}
@@ -113,6 +114,24 @@ def test_below_the_first_tenor_the_rate_is_flat(db, method):
     assert m1.par_yield == m2.par_yield == Decimal("3.95")
 
 
+def test_cubic_par_is_a_natural_spline_on_par_yields(db):
+    # Through (1, 4), (2, 5), (3, 4) the inner second derivative m solves 4m = 6 * (-1 - 1), so m = -3, and halfway
+    # along each segment the spline is the straight line plus m * (1/2)^3 / 6 - m * (1/2) / 6 = 4.5 + 0.1875.
+    db[0][:] = [row(D1, year1="4", year2="5", year3="4")]
+    assert on("18M", method="cubic_par").par_yield == on("30M", method="cubic_par").par_yield == Decimal("4.6875")
+
+
+def test_cubic_par_is_smooth_at_every_inner_tenor_and_every_tenor_moves_it(db):
+    eps = Decimal("0.000001")
+    for tenor in list(tr.TENORS)[1:-1]:
+        t = tc._TENOR_YEARS[tenor]
+        left, mid, right = (on(f"{t + d}Y", method="cubic_par").par_yield for d in (-eps, 0, eps))
+        assert abs((right - mid) - (mid - left)) / eps < Decimal("0.001"), tenor
+    before = on("4Y", method="cubic_par")
+    db[0][0] = {**db[0][0], "year20": Decimal("6.00")}
+    assert on("4Y", method="cubic_par").par_yield != before.par_yield
+
+
 def test_the_methods_differ_between_tenors_only(db):
     assert on("10Y").par_yield == on("10Y", method="linear_par").par_yield
     assert on("4Y", method="linear_par").par_yield == Decimal("3.6")
@@ -125,12 +144,13 @@ def test_maturity_in_any_case_or_spacing_is_named_as_written(db):
     assert run("18M") == [p.model_copy(update={"maturity": "18M"}) for p in run("1.5Y")]
 
 
-def test_linear_par_warns_on_every_call_and_flat_forward_does_not(db):
-    with pytest.warns(tc.MethodWarning, match="linear_par is not arbitrage-free"):
-        asyncio.run(tc.treasury_curve("4Y", D1, D3, "linear_par"))
+@pytest.mark.parametrize("method", ["linear_par", "cubic_par"])
+def test_a_method_with_a_warning_warns_on_every_call_and_flat_forward_does_not(db, method):
+    with pytest.warns(tc.MethodWarning, match=re.escape(tc.METHODS[method][1])):
+        asyncio.run(tc.treasury_curve("4Y", D1, D3, method))
     with warnings.catch_warnings(record=True) as caught:
         for _ in range(2):
-            asyncio.run(tc.treasury_curve("4Y", D1, D3, "linear_par"))
+            asyncio.run(tc.treasury_curve("4Y", D1, D3, method))
     assert [w.category for w in caught] == [tc.MethodWarning] * 2
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -145,7 +165,7 @@ def test_bad_maturity_rejected_before_any_read(db, maturity):
 
 
 def test_bad_method_or_start_after_end_rejected_before_any_read(db):
-    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, linear_par"):
+    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, linear_par, cubic_par$"):
         run("4Y", method="cubic")
     with pytest.raises(ValueError, match="start must be on or before end"):
         run("4Y", start=D3, end=D1)

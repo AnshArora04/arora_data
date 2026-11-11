@@ -10,6 +10,8 @@ Methods:
   the forward rate is flat between them and from today to the first tenor.
 - linear_par: par yields linear in maturity between tenors (flat below the first), then zero rates bootstrapped from
   them every six months back from the maturity. Warns: its forward rates kink at each tenor.
+- cubic_par: par yields on a natural cubic spline through the tenors (flat below the first), then zero rates as in
+  linear_par. Warns: it can overshoot between tenors, and every tenor moves the whole curve.
 """
 from __future__ import annotations
 
@@ -155,6 +157,38 @@ def _linear_par(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decim
         (t0, y0), (t1, y1) = nodes[i - 1], nodes[i]
         return y0 + (s - t0) / (t1 - t0) * (y1 - y0)
 
+    return _from_par(par, t)
+
+
+def _cubic_par(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
+    """Par yield and zero rate (fractions) at t, with par yields on a natural cubic spline through the nodes."""
+    xs, ys = [n for n, _ in nodes], [y for _, y in nodes]
+    k, h = len(xs), [b - a for a, b in zip(xs, xs[1:])]
+    # Second derivatives, zero at both ends; the inner ones solve a tridiagonal system (Thomas algorithm).
+    m, diag, rhs = [Decimal(0)] * k, [], []
+    for i in range(1, k - 1):
+        b, d = 2 * (h[i - 1] + h[i]), 6 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1])
+        if diag:
+            w = h[i - 1] / diag[-1]
+            b, d = b - w * h[i - 1], d - w * rhs[-1]
+        diag.append(b)
+        rhs.append(d)
+    for j in reversed(range(len(diag))):
+        m[j + 1] = (rhs[j] - h[j + 1] * m[j + 2]) / diag[j]
+
+    def par(s: Decimal) -> Decimal:
+        if s <= xs[0]:
+            return ys[0]
+        i = bisect_left(xs, s) - 1
+        u, v = xs[i + 1] - s, s - xs[i]
+        return ((m[i] * u ** 3 + m[i + 1] * v ** 3) / (6 * h[i]) + (ys[i] / h[i] - m[i] * h[i] / 6) * u
+                + (ys[i + 1] / h[i] - m[i + 1] * h[i] / 6) * v)
+
+    return _from_par(par, t)
+
+
+def _from_par(par: Callable[[Decimal], Decimal], t: Decimal) -> tuple[Decimal, Decimal]:
+    """Par yield and zero rate (fractions) at t, bootstrapping discount factors every six months back from t."""
     pay, accrued = _coupons(t)
     dfs: list[Decimal] = []
     for s in pay:
@@ -171,6 +205,8 @@ METHODS: dict[str, tuple[Callable[[list[tuple[Decimal, Decimal]], Decimal], tupl
     "flat_forward": (_flat_forward, None),
     "linear_par": (_linear_par,
                    "linear_par is not arbitrage-free: its forward rates kink at each tenor. flat_forward is the default."),
+    "cubic_par": (_cubic_par, "cubic_par can overshoot between tenors, and every tenor moves the whole curve. "
+                              "flat_forward is the default."),
 }
 
 
