@@ -107,7 +107,7 @@ def test_a_missing_tenor_is_skipped_never_filled_and_never_extrapolated_past(db,
     assert [(p.lower, p.upper) for p in run("4Y", method=method)] == [("3Y", "5Y"), ("3Y", "5Y")]
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", ["flat_forward", "linear_par", "cubic_par"])
 def test_below_the_first_tenor_the_rate_is_flat(db, method):
     m1, m2, m3 = on("1M", D3, method), on("2M", D3, method), on("3M", D3, method)
     assert m1.zero_rate == m2.zero_rate == m3.zero_rate == Decimal("3.95")
@@ -130,6 +130,81 @@ def test_cubic_par_is_smooth_at_every_inner_tenor_and_every_tenor_moves_it(db):
     before = on("4Y", method="cubic_par")
     db[0][0] = {**db[0][0], "year20": Decimal("6.00")}
     assert on("4Y", method="cubic_par").par_yield != before.par_yield
+
+
+@pytest.mark.parametrize("g0, g1", [
+    ("-1", "1"), ("1", "-1"), ("-1", "2"), ("1", "-0.5"),  # (i), with two of its edges
+    ("-1", "3"), ("1", "-3"),  # (ii)
+    ("-1", "0.5"),  # (i)'s other edge
+    ("1", "-0.25"), ("-1", "0.25"),  # (iii)
+    ("1", "2"), ("2", "1"), ("-1", "-2"),  # (iv)
+])
+def test_monotone_convex_g_starts_at_g0_ends_at_g1_and_averages_zero(g0, g1):
+    g0, g1, h = Decimal(g0), Decimal(g1), Decimal("1e-12")
+    with localcontext() as ctx:
+        ctx.prec = 40
+        big = tc._g_integral(g0, g1, Decimal(1))
+        assert abs(big) < Decimal("1e-30")
+        assert abs(tc._g_integral(g0, g1, h) / h - g0) < Decimal("1e-9")
+        assert abs((big - tc._g_integral(g0, g1, 1 - h)) / h - g1) < Decimal("1e-9")
+        xs = [Decimal(i) / 100 for i in range(101)]
+        rates = [(tc._g_integral(g0, g1, b) - tc._g_integral(g0, g1, a)) / (b - a) for a, b in zip(xs, xs[1:])]
+        assert all(abs(b - a) < Decimal("0.2") for a, b in zip(rates, rates[1:]))  # no jumps inside the interval
+
+
+def test_monotone_convex_g_is_zero_when_either_end_is():
+    for g0, g1 in (("0", "1"), ("1", "0"), ("0", "0")):
+        assert tc._g_integral(Decimal(g0), Decimal(g1), Decimal("0.3")) == 0
+
+
+def test_monotone_convex_matches_hand_forwards_below_the_first_tenor(db):
+    # 6M and 1Y only: equal intervals, so f(6M) is the mean of the two average forwards d1 and d2, f(0) = d1 - (f(6M)
+    # - d1) / 2, g0 = -(d2 - d1) / 4 and g1 = (d2 - d1) / 2 = -2 g0 (sector (i)'s edge), and the integral to 3M is
+    # 0.5 * (d1 / 2 + g0 / 8 - g1 / 8) = d1 / 4 - 3 (d2 - d1) / 64.
+    db[0][:] = [row(D1, month6="4", year1="5")]
+    with localcontext() as ctx:
+        ctx.prec = 30
+        i6, i12 = Decimal("0.5") * 2 * Decimal("1.02").ln(), 2 * Decimal("1.025").ln()
+        d1, d2 = i6 / Decimal("0.5"), (i12 - i6) / Decimal("0.5")
+        i3 = d1 / 4 - 3 * (d2 - d1) / 64
+        zero = 200 * ((i3 / Decimal("0.5")).exp() - 1)
+    assert abs(on("3M", method="monotone_convex").zero_rate - zero) < Decimal("1e-9")
+
+
+def test_monotone_convex_forward_at_each_tenor_is_hagan_west_and_continuous(db):
+    # The forward at an inner tenor is its neighbours' average forwards weighted by the other interval's length;
+    # at the last tenor it is d_n - (f_{n-1} - d_n) / 2. Both one-sided slopes of the integral must agree with it.
+    eps = Decimal("0.000001")
+
+    def integral(t):  # minus the log discount factor, from the semiannual zero rate
+        return 2 * t * (1 + on(f"{t}Y", method="monotone_convex").zero_rate / 200).ln()
+
+    taus = [Decimal(0)] + list(tc._TENOR_YEARS.values())
+    ints = [Decimal(0)] + [integral(t) for t in taus[1:]]
+    d = [None] + [(ints[i] - ints[i - 1]) / (taus[i] - taus[i - 1]) for i in range(1, len(taus))]
+    f = {i: ((taus[i] - taus[i - 1]) * d[i + 1] + (taus[i + 1] - taus[i]) * d[i]) / (taus[i + 1] - taus[i - 1])
+         for i in range(1, len(taus) - 1)}
+    n = len(taus) - 1
+    f[n] = d[n] - (f[n - 1] - d[n]) / 2
+    for i in range(2, n + 1):  # 1M is a joint too, but nothing below 1M can be asked for
+        left = (ints[i] - integral(taus[i] - eps)) / eps
+        assert abs(left - f[i]) < Decimal("0.00001"), taus[i]
+        if i < n:
+            right = (integral(taus[i] + eps) - ints[i]) / eps
+            assert abs(right - f[i]) < Decimal("0.00001"), taus[i]
+
+
+def test_monotone_convex_with_one_tenor_is_flat_forward(db):
+    db[0][:] = [row(D1, year10="4.5")]
+    a, b = on("4Y", method="monotone_convex"), on("4Y")
+    assert abs(a.par_yield - b.par_yield) < Decimal("1e-9") and abs(a.zero_rate - b.zero_rate) < Decimal("1e-9")
+
+
+def test_monotone_convex_feels_a_far_tenor_only_faintly(db):
+    before = on("4Y", method="monotone_convex")
+    db[0][0] = {**db[0][0], "year20": Decimal("6.00")}
+    moved = abs(on("4Y", method="monotone_convex").zero_rate - before.zero_rate)
+    assert Decimal(0) < moved < Decimal("0.00001")  # under 0.001 bp for a 135 bp move
 
 
 def test_the_methods_differ_between_tenors_only(db):
@@ -155,6 +230,7 @@ def test_a_method_with_a_warning_warns_on_every_call_and_flat_forward_does_not(d
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         asyncio.run(tc.treasury_curve("4Y", D1, D3))
+        asyncio.run(tc.treasury_curve("4Y", D1, D3, "monotone_convex"))
 
 
 @pytest.mark.parametrize("maturity", ["0M", "0.5M", "31Y", "30.5Y", "2W", "4", "Y", "", "4YY", "-1Y", 4, None])
@@ -165,7 +241,7 @@ def test_bad_maturity_rejected_before_any_read(db, maturity):
 
 
 def test_bad_method_or_start_after_end_rejected_before_any_read(db):
-    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, linear_par, cubic_par$"):
+    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, monotone_convex, linear_par, cubic_par$"):
         run("4Y", method="cubic")
     with pytest.raises(ValueError, match="start must be on or before end"):
         run("4Y", start=D3, end=D1)

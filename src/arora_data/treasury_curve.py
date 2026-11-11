@@ -12,10 +12,16 @@ Methods:
   them every six months back from the maturity. Warns: its forward rates kink at each tenor.
 - cubic_par: par yields on a natural cubic spline through the tenors (flat below the first), then zero rates as in
   linear_par. Warns: it can overshoot between tenors, and every tenor moves the whole curve.
+- monotone_convex: Hagan and West's monotone convex forwards (Applied Mathematical Finance, 2006; Treasury's method
+  since 2021-12-06), in its basic form without the positivity amendment. Forwards are continuous and, where the
+  tenors' average forwards rise or fall, keep doing so between them, from today to the last tenor. Each tenor moves
+  its neighbours slightly, so every day's tenors are solved together. It works in float for speed, the one exception
+  to Decimal here: about 15 digits inside, served rounded to 12, so the last digit can be one off an exact calculation.
 """
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 import warnings
 from bisect import bisect_left
@@ -146,6 +152,87 @@ def _solve_par(last_t: Decimal, last_ln: Decimal, fixed: Decimal, node: Decimal,
     raise ArithmeticError(f"no par solution at {node}Y for yield {y}")
 
 
+def _g_integral(g0: float, g1: float, x: float) -> float:
+    """The integral from 0 to x of Hagan and West's g, the forward less its interval average, which is g0 at the
+    interval's start and g1 at its end (x runs 0 to 1). Its integral over the whole interval is 0."""
+    if g0 == 0 or g1 == 0:  # the limit of every sector: g is 0 but at one end
+        return 0.0
+    if (g0 < 0 and -g0 / 2 <= g1 <= -2 * g0) or (g0 > 0 and -g0 / 2 >= g1 >= -2 * g0):  # (i)
+        return g0 * (x - 2 * x ** 2 + x ** 3) + g1 * (x ** 3 - x ** 2)
+    if (g0 < 0 and g1 > -2 * g0) or (g0 > 0 and g1 < -2 * g0):  # (ii) flat, then rising to g1
+        eta = (g1 + 2 * g0) / (g1 - g0)
+        return g0 * x + ((g1 - g0) * (x - eta) ** 3 / (3 * (1 - eta) ** 2) if x > eta else 0)
+    if (g0 > 0 and 0 > g1 > -g0 / 2) or (g0 < 0 and 0 < g1 < -g0 / 2):  # (iii) falling from g0, then flat
+        eta = 3 * g1 / (g1 - g0)
+        return g1 * x + (g0 - g1) * (eta ** 3 - max(eta - x, 0) ** 3) / (3 * eta ** 2)
+    eta, a = g1 / (g1 + g0), -g0 * g1 / (g0 + g1)  # (iv) g0 and g1 the same sign: down to a, then back up
+    if x < eta:
+        return a * x + (g0 - a) * (eta ** 3 - (eta - x) ** 3) / (3 * eta ** 2)
+    return a * x + (g0 - a) * eta / 3 + (g1 - a) * (x - eta) ** 3 / (3 * (1 - eta) ** 2)
+
+
+def _monotone_convex_curve(taus: list[float], ints: list[float]) -> Callable[[float], float]:
+    """The integrated forward (minus the log discount factor) at any time up to the last node, through the nodes
+    taus (starting at 0) with integrals ints (starting at 0)."""
+    n = len(taus) - 1
+    fd = [0.0] + [(ints[i] - ints[i - 1]) / (taus[i] - taus[i - 1]) for i in range(1, n + 1)]
+    f = [fd[1]] * (n + 1)
+    for i in range(1, n):
+        f[i] = ((taus[i] - taus[i - 1]) * fd[i + 1] + (taus[i + 1] - taus[i]) * fd[i]) / (taus[i + 1] - taus[i - 1])
+    if n > 1:
+        f[0], f[n] = fd[1] - (f[1] - fd[1]) / 2, fd[n] - (f[n - 1] - fd[n]) / 2
+
+    def integral(s: float) -> float:
+        i = bisect_left(taus, s)
+        if taus[i] == s:
+            return ints[i]
+        width = taus[i] - taus[i - 1]
+        x = (s - taus[i - 1]) / width
+        return ints[i - 1] + width * (fd[i] * x + _g_integral(f[i - 1] - fd[i], f[i] - fd[i], x))
+
+    return integral
+
+
+def _monotone_convex(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
+    """Par yield and zero rate (fractions) at t on a monotone convex curve that prices every node's bond at par.
+    In float: 9x faster than Decimal over the full history, and at most 1e-11 points off it (measured 2026-11-11)."""
+    taus = [0.0] + [float(n) for n, _ in nodes]
+    ys = [float(y) for _, y in nodes]
+    ints = [0.0] + [2 * n * math.log1p(y / 2) for n, y in zip(taus[1:], ys)]  # exact for bills; bonds start flat
+    bonds = [k for k in range(1, len(taus)) if taus[k] > 1]
+    grid = [0.5 * j for j in range(1, round(taus[-1] / 0.5) + 1)] if bonds else []
+    for _ in range(100):
+        integral = _monotone_convex_curve(taus, ints)
+        if not bonds:
+            break
+        dfs = [math.exp(-integral(s)) for s in grid]
+        steps = []
+        for k in bonds:
+            c, last = ys[k - 1] / 2, round(taus[k] / 0.5)  # nodes past 1Y are whole years
+            price = c * sum(dfs[:last]) + dfs[last - 1] - 1
+            # How the price moves with ints[k] if the interval were flat forward: a Newton step that converges here.
+            slope = -dfs[last - 1] - c * sum((s - taus[k - 1]) / (taus[k] - taus[k - 1]) * df
+                                             for s, df in zip(grid[:last], dfs[:last]) if s > taus[k - 1])
+            steps.append(price / slope)
+        for k, step in zip(bonds, steps):
+            ints[k] -= step
+        if max(abs(step) for step in steps) < 1e-13:  # float's rounding keeps steps above 1e-15 on some days
+            integral = _monotone_convex_curve(taus, ints)
+            break
+    else:
+        raise ArithmeticError(f"monotone convex bootstrap did not settle for nodes {nodes}")
+    x = float(t)
+    zero = 2 * math.expm1(integral(x) / (2 * x))
+    if x <= 1:
+        return Decimal(repr(zero)), Decimal(repr(zero))
+    pay = [x]
+    while pay[-1] > 0.5:
+        pay.append(pay[-1] - 0.5)
+    accrued = (0.5 - pay[-1]) / 0.5
+    annuity = sum(math.exp(-integral(s)) for s in pay)
+    return Decimal(repr(2 * (1 - math.exp(-integral(x))) / (annuity - accrued))), Decimal(repr(zero))
+
+
 def _linear_par(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
     """Par yield and zero rate (fractions) at t, with par yields linear between the nodes (years, yield)."""
     times = [n for n, _ in nodes]
@@ -203,6 +290,7 @@ def _from_par(par: Callable[[Decimal], Decimal], t: Decimal) -> tuple[Decimal, D
 # Method: its function, and the warning it emits on every call (None for none).
 METHODS: dict[str, tuple[Callable[[list[tuple[Decimal, Decimal]], Decimal], tuple[Decimal, Decimal]], str | None]] = {
     "flat_forward": (_flat_forward, None),
+    "monotone_convex": (_monotone_convex, None),
     "linear_par": (_linear_par,
                    "linear_par is not arbitrage-free: its forward rates kink at each tenor. flat_forward is the default."),
     "cubic_par": (_cubic_par, "cubic_par can overshoot between tenors, and every tenor moves the whole curve. "

@@ -328,10 +328,12 @@ def test_treasury_tenors_are_the_table_columns_and_its_gaps_are_left_out():
         date(2010, 10, 8), date(2010, 10, 12)]
 
 
-def test_treasury_curve_at_a_tenor_is_the_stored_yield():
+@pytest.mark.filterwarnings("ignore::arora_data.treasury_curve.MethodWarning")
+@pytest.mark.parametrize("method", treasury_curve.METHODS)
+def test_treasury_curve_at_a_tenor_is_the_stored_yield(method):
     start, end = _last_days(30)
     stored = {r.date: r.yield_pct for r in sync.treasury(start, end, "10Y")}
-    curve = sync.treasury_curve("10Y", start, end)
+    curve = sync.treasury_curve("10Y", start, end, method)
     assert stored and {p.date for p in curve} == set(stored)
     assert all(abs(p.par_yield - stored[p.date]) < Decimal("1e-8") and p.zero_rate > 0 for p in curve)
 
