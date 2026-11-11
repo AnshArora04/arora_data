@@ -329,7 +329,7 @@ def test_treasury_tenors_are_the_table_columns_and_its_gaps_are_left_out():
 
 
 @pytest.mark.filterwarnings("ignore::arora_data.treasury_curve.MethodWarning")
-@pytest.mark.parametrize("method", treasury_curve.METHODS)
+@pytest.mark.parametrize("method", [m for m in treasury_curve.METHODS if m != "nss"])
 def test_treasury_curve_at_a_tenor_is_the_stored_yield(method):
     start, end = _last_days(30)
     stored = {r.date: r.yield_pct for r in sync.treasury(start, end, "10Y")}
@@ -343,3 +343,12 @@ def test_treasury_curve_is_never_extrapolated_past_the_days_longest_tenor():
     assert [p.date for p in sync.treasury_curve("25Y", date(2002, 2, 15), date(2006, 2, 9))] == [
         date(2002, 2, 15), date(2006, 2, 9)]
     assert len(sync.treasury_curve("20Y", date(2002, 2, 15), date(2006, 2, 9))) > 900
+
+
+@pytest.mark.filterwarnings("ignore::arora_data.treasury_curve.MethodWarning")
+def test_treasury_curve_nss_stays_near_the_stored_yields():
+    start, end = _last_days(30)
+    stored = {r.date: r.yield_pct for r in sync.treasury(start, end, "10Y")}
+    curve = sync.treasury_curve("10Y", start, end, "nss")
+    assert stored and {p.date for p in curve} == set(stored)
+    assert all(abs(p.par_yield - stored[p.date]) < Decimal("0.3") for p in curve)  # 27 bp is the worst since 1990

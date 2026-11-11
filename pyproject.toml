@@ -7,9 +7,10 @@ name = "arora-data"
 version = "0.1.0"
 description = "Strict read-only access layer over the AroraFund database"
 requires-python = ">=3.11"
-# asyncpg and pydantic match the main repo's backend/requirements.txt.
+# asyncpg and pydantic match the main repo's backend/requirements.txt; numpy fits treasury_curve's nss curves.
 dependencies = [
     "asyncpg==0.29.0",
+    "numpy>=2,<3",
     "pydantic==2.9.2",
     "python-dotenv>=1.0,<2",
 ]

@@ -17,6 +17,9 @@ Methods:
   tenors' average forwards rise or fall, keep doing so between them, from today to the last tenor. Each tenor moves
   its neighbours slightly, so every day's tenors are solved together. It works in float for speed, the one exception
   to Decimal here: about 15 digits inside, served rounded to 12, so the last digit can be one off an exact calculation.
+- nss: a Nelson-Siegel-Svensson curve fitted to each day's flat_forward zero rates at the stored tenors, by least
+  squares over a grid of its two decay times. Needs 6 tenors that day, and works in float (numpy). Warns: a fit misses
+  the stored tenors; at the 10Y by 2 bp on a typical day and up to 27 bp (1990-2026), so it is not for looking up.
 """
 from __future__ import annotations
 
@@ -27,6 +30,8 @@ import warnings
 from bisect import bisect_left
 from collections.abc import Callable
 from decimal import Context, Decimal, localcontext
+
+import numpy as np
 
 from arora_data import _readers, treasury as _tr
 from arora_data.catalog import _Row
@@ -94,8 +99,10 @@ def _ln_df_at(times: list[Decimal], ln_dfs: list[Decimal], t: Decimal) -> Decima
     return ln_dfs[i - 1] + w * (ln_dfs[i] - ln_dfs[i - 1])
 
 
-def _flat_forward(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
-    """Par yield and zero rate (fractions) at t, bootstrapping the nodes (years, yield) up to the first at or past t."""
+def _bootstrap(nodes: list[tuple[Decimal, Decimal]],
+               until: Decimal) -> tuple[list[Decimal], list[Decimal], list[Decimal]]:
+    """Flat-forward log discount factors at 0 and at the nodes (years, yield) up to the first at or past until, and the
+    discount factors every six months as far as they go."""
     times, ln_dfs = [Decimal(0)], [Decimal(0)]
     half: list[Decimal] = []  # discount factors at 0.5, 1, 1.5, ... years, as far as the curve is built
     for node, y in nodes:
@@ -108,8 +115,14 @@ def _flat_forward(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Dec
             half += segment
         times.append(node)
         ln_dfs.append(ln_df)
-        if node >= t:
+        if node >= until:
             break
+    return times, ln_dfs, half
+
+
+def _flat_forward(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
+    """Par yield and zero rate (fractions) at t, bootstrapping the nodes (years, yield) up to the first at or past t."""
+    times, ln_dfs, half = _bootstrap(nodes, t)
     ln_df = _ln_df_at(times, ln_dfs, t)
     if t <= 1:
         return _zero(t, ln_df), _zero(t, ln_df)
@@ -221,7 +234,11 @@ def _monotone_convex(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[
             break
     else:
         raise ArithmeticError(f"monotone convex bootstrap did not settle for nodes {nodes}")
-    x = float(t)
+    return _float_rates(float(t), integral)
+
+
+def _float_rates(x: float, integral: Callable[[float], float]) -> tuple[Decimal, Decimal]:
+    """Par yield and zero rate (fractions) at x years from a float curve's integrated forward (minus log discount)."""
     zero = 2 * math.expm1(integral(x) / (2 * x))
     if x <= 1:
         return Decimal(repr(zero)), Decimal(repr(zero))
@@ -231,6 +248,42 @@ def _monotone_convex(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[
     accrued = (0.5 - pay[-1]) / 0.5
     annuity = sum(math.exp(-integral(s)) for s in pay)
     return Decimal(repr(2 * (1 - math.exp(-integral(x))) / (annuity - accrued))), Decimal(repr(zero))
+
+
+# shortcut: a fixed grid of 15 decay times (in years), no refinement; refine around the best pair for tighter fits.
+_NSS_TAUS = np.geomspace(0.25, 30, 15)
+_NSS_PAIRS = [(a, b) for i, a in enumerate(_NSS_TAUS) for b in _NSS_TAUS[i + 1:]]
+_NSS_MIN_TENORS = 6  # the fit has 6 parameters: with fewer tenors it is not pinned down
+
+
+def _nss_columns(t: np.ndarray, tau1: np.ndarray, tau2: np.ndarray) -> np.ndarray:
+    """Nelson-Siegel-Svensson's four factor loadings at times t, for each pair of decay times."""
+    x1, x2 = t / tau1, t / tau2
+    slope1, slope2 = -np.expm1(-x1) / x1, -np.expm1(-x2) / x2
+    return np.stack([np.ones_like(x1), slope1, slope1 - np.exp(-x1), slope2 - np.exp(-x2)], axis=-1)
+
+
+def _nss_fit(t: np.ndarray, zero: np.ndarray) -> Callable[[float], float]:
+    """The continuous zero rate at any time, from the NSS curve closest (least squares) to zero rates at times t, over
+    every pair of decay times in the grid."""
+    tau1, tau2 = (np.array(v)[:, None] for v in zip(*_NSS_PAIRS))
+    x = _nss_columns(t[None, :], tau1, tau2)  # pairs x tenors x 4
+    weights = np.einsum("pij,j->pi", np.linalg.pinv(x), zero)
+    errors = ((np.einsum("pij,pj->pi", x, weights) - zero) ** 2).sum(axis=1)
+    best = int(np.argmin(errors))
+    a, b, w = _NSS_PAIRS[best][0], _NSS_PAIRS[best][1], weights[best]
+    return lambda s: float(_nss_columns(np.array(s), np.array(a), np.array(b)) @ w)
+
+
+def _nss(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal] | None:
+    """Par yield and zero rate (fractions) at t on the NSS curve fitted to the nodes' flat-forward zero rates, or None
+    with fewer than _NSS_MIN_TENORS nodes."""
+    if len(nodes) < _NSS_MIN_TENORS:
+        return None
+    times, ln_dfs, _ = _bootstrap(nodes, nodes[-1][0])
+    ts = np.array([float(v) for v in times[1:]])
+    rate = _nss_fit(ts, np.array([-float(v) for v in ln_dfs[1:]]) / ts)
+    return _float_rates(float(t), lambda s: rate(s) * s)
 
 
 def _linear_par(nodes: list[tuple[Decimal, Decimal]], t: Decimal) -> tuple[Decimal, Decimal]:
@@ -293,6 +346,8 @@ METHODS: dict[str, tuple[Callable[[list[tuple[Decimal, Decimal]], Decimal], tupl
     "monotone_convex": (_monotone_convex, None),
     "linear_par": (_linear_par,
                    "linear_par is not arbitrage-free: its forward rates kink at each tenor. flat_forward is the default."),
+    "nss": (_nss, "nss is a fitted curve: it misses the stored tenors (the 10Y by 2 bp on a typical day, up to 27 bp), "
+                  "so it is not for looking values up. flat_forward is the default."),
     "cubic_par": (_cubic_par, "cubic_par can overshoot between tenors, and every tenor moves the whole curve. "
                               "flat_forward is the default."),
 }
@@ -307,7 +362,10 @@ def _point(maturity: str, t: Decimal, day: dt.date, stored: dict[str, Decimal], 
     nodes = [(_TENOR_YEARS[k], stored[k] / 100) for k in tenors]
     with localcontext() as ctx:
         ctx.prec = _PREC
-        par, zero = method(nodes, t)
+        result = method(nodes, t)
+    if result is None:  # too few tenors that day for the method
+        return None
+    par, zero = result
     out = Context(prec=SIG_DIGITS).plus
     return CurvePoint(maturity=maturity, date=day, par_yield=out(par * 100), zero_rate=out(zero * 100),
                       lower=lower, upper=upper)

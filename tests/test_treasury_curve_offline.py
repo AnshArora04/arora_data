@@ -1,10 +1,12 @@
 """treasury_curve() methods, nodes, gaps and input checks, with the database faked."""
 import asyncio
+import math
 import re
 import warnings
 from datetime import date
 from decimal import Decimal, localcontext
 
+import numpy as np
 import pytest
 
 from arora_data import treasury as tr, treasury_curve as tc
@@ -56,7 +58,7 @@ def test_a_flat_curve_is_flat_at_every_tenor_and_half_year(db, method):
         assert abs(p.par_yield - 5) < Decimal("0.01") and abs(p.zero_rate - 5) < Decimal("0.01"), m
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", [m for m in METHODS if m != "nss"])
 def test_every_stored_tenor_comes_back_as_its_par_yield(db, method):
     for tenor, column in tr.TENORS.items():
         p = on(tenor, method=method)
@@ -207,6 +209,29 @@ def test_monotone_convex_feels_a_far_tenor_only_faintly(db):
     assert Decimal(0) < moved < Decimal("0.00001")  # under 0.001 bp for a 135 bp move
 
 
+def test_nss_fit_recovers_a_curve_drawn_from_its_own_family():
+    # Svensson (1994): b0 + b1 L(t/tau1) + b2 (L(t/tau1) - e^(-t/tau1)) + b3 (L(t/tau2) - e^(-t/tau2)), L(x) = (1 - e^-x) / x
+    tau1, tau2, (b0, b1, b2, b3) = float(tc._NSS_TAUS[4]), float(tc._NSS_TAUS[10]), (0.05, -0.02, 0.01, 0.015)
+
+    def svensson(t):
+        level = lambda x: (1 - math.exp(-x)) / x  # noqa: E731
+        return (b0 + b1 * level(t / tau1) + b2 * (level(t / tau1) - math.exp(-t / tau1))
+                + b3 * (level(t / tau2) - math.exp(-t / tau2)))
+
+    ts = [float(v) for v in tc._TENOR_YEARS.values()]
+    rate = tc._nss_fit(np.array(ts), np.array([svensson(t) for t in ts]))
+    for t in (0.1, 2.3, 7.7, 25.0):
+        assert abs(rate(t) - svensson(t)) < 1e-10, t
+
+
+def test_nss_misses_the_stored_tenors_by_a_little_and_needs_six_of_them(db):
+    gaps = [abs(on(tenor, method="nss").par_yield - Decimal(REAL[column])) for tenor, column in tr.TENORS.items()]
+    assert max(gaps) < Decimal("0.1") and max(gaps) > Decimal("0.001")  # within 10 bp, and a fit, not an echo
+    db[0][:] = [row(D1, month3="4", year1="4.1", year2="4.2", year5="4.3", year10="4.4"),
+                row(D3, month3="4", year1="4.1", year2="4.2", year5="4.3", year10="4.4", year30="4.5")]
+    assert [p.date for p in run("4Y", method="nss")] == [D3]
+
+
 def test_the_methods_differ_between_tenors_only(db):
     assert on("10Y").par_yield == on("10Y", method="linear_par").par_yield
     assert on("4Y", method="linear_par").par_yield == Decimal("3.6")
@@ -219,7 +244,7 @@ def test_maturity_in_any_case_or_spacing_is_named_as_written(db):
     assert run("18M") == [p.model_copy(update={"maturity": "18M"}) for p in run("1.5Y")]
 
 
-@pytest.mark.parametrize("method", ["linear_par", "cubic_par"])
+@pytest.mark.parametrize("method", ["linear_par", "cubic_par", "nss"])
 def test_a_method_with_a_warning_warns_on_every_call_and_flat_forward_does_not(db, method):
     with pytest.warns(tc.MethodWarning, match=re.escape(tc.METHODS[method][1])):
         asyncio.run(tc.treasury_curve("4Y", D1, D3, method))
@@ -241,7 +266,7 @@ def test_bad_maturity_rejected_before_any_read(db, maturity):
 
 
 def test_bad_method_or_start_after_end_rejected_before_any_read(db):
-    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, monotone_convex, linear_par, cubic_par$"):
+    with pytest.raises(ValueError, match="'cubic' is not a method: use one of flat_forward, monotone_convex, linear_par, nss, cubic_par$"):
         run("4Y", method="cubic")
     with pytest.raises(ValueError, match="start must be on or before end"):
         run("4Y", start=D3, end=D1)
