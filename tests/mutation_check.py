@@ -335,6 +335,32 @@ MUTATIONS = [
     ("sync.py", "commodities = _sync(_commodities.commodities)", "commodities = None"),
     # Caught only by test_prod.py's index test.
     ("catalog.py", '"forex.prices": ("symbol", None)', '"forex.prices": ("date", None)'),
+    # fred: lookup, gaps and labels (offline), then the SQL (test_prod.py).
+    ("fred.py", 'return " ".join(text.split()).lower()', "return text.lower()"),
+    ("fred.py", 'return " ".join(text.split()).lower()', 'return " ".join(text.split())'),
+    ("fred.py", "if s.series_id.lower() == key]", "if s.series_id == key]"),
+    ("fred.py", "             or [s for s in stored if s.name", "             and [s for s in stored if s.name"),
+    ("fred.py", "if s.name is not None and _key(s.name) == key])", "if s.name is not None and s.name == key])"),
+    ("fred.py", "    if len(found) == 1:\n", "    if len(found) >= 1:\n"),
+    ("fred.py", "    if found:\n        raise", "    if False:\n        raise"),
+    ("fred.py", "for v in values if v.value is not None]", "for v in values]"),
+    ("fred.py", "units=picked.units)", "units=v.units)"),
+    ("fred.py", "name=picked.name, date", "name=picked.series_id, date"),
+    ("fred.py", "    _readers._check_range(start, end)\n    # Read the input as an id", "    # Read the input as an id"),
+    ("fred.py", "_read_values(_TABLE, picked.series_id, start, end)", "_read_values(_TABLE, picked.series_id, start, start)"),
+    ("fred.py", "return [FredSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)]",
+     "return [FredSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)][1:]"),
+    ("fred.py", "    if picked.series_id != guess:\n", "    if False:\n"),
+    ("fred.py", "    if picked.series_id != guess:\n", "    if True:\n"),
+    ("fred.py", 'guess = _key(series).upper() if', "guess = _key(series) if"),
+    # Labels from the latest row can't be told from the earliest yet: every series' rows carry the same labels.
+    ("fred.py", "WHERE o.series_id = s.series_id ORDER BY date DESC LIMIT 1) l",
+     "WHERE o.series_id = 'DFF' ORDER BY date DESC LIMIT 1) l"),
+    ("fred.py", "WHERE series_id > s.series_id)", "WHERE series_id > s.series_id AND series_id <> 'DFF')"),
+    ("fred.py", 'f.date AS first_date, z.date AS latest_date', 'z.date AS first_date, z.date AS latest_date'),
+    ("fred.py", '_TABLE = "macro.observations"', '_TABLE = "macro.economic_indicators"'),
+    ("sync.py", "fred = _sync(_fred.fred)", "fred = None"),
+    ("sync.py", "fred_series = _sync(_fred.fred_series)", "fred_series = None"),
 ]
 
 
