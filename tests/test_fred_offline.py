@@ -89,14 +89,14 @@ def test_the_range_reaches_the_read_and_end_defaults_to_today_eastern(db, monkey
 def test_an_id_wins_over_a_name_that_spells_it(db):
     run("pce")
     assert db[-1][1] == "PCE"
-    assert fr._resolve("pce", STORED).series_id == "PCE"
-    assert fr._resolve("Personal consumption expenditures", STORED).series_id == "PCE"
+    assert _readers._resolve("pce", STORED, fr._HINT).series_id == "PCE"
+    assert _readers._resolve("Personal consumption expenditures", STORED, fr._HINT).series_id == "PCE"
 
 
 def test_a_name_two_series_share_raises_naming_both(db):
     with pytest.raises(ValueError, match="names 2 series: use an id, one of TWIN1, TWIN2$"):
         run("same name")
-    assert fr._resolve("twin2", STORED).series_id == "TWIN2"
+    assert _readers._resolve("twin2", STORED, fr._HINT).series_id == "TWIN2"
     assert len(db) == 2  # the list and the guessed read, nothing after
 
 

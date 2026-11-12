@@ -66,6 +66,22 @@ def _check_range(start: date, end: date) -> None:
         raise ValueError("start must be on or before end")
 
 
+def _key(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def _resolve(series: str, stored: list, hint: str):
+    """The one stored series whose id, or else name, is series in any case and spacing. hint ends the error."""
+    key = _key(series) if isinstance(series, str) else None
+    found = ([s for s in stored if s.series_id.lower() == key]
+             or [s for s in stored if s.name is not None and _key(s.name) == key])
+    if len(found) == 1:
+        return found[0]
+    if found:
+        raise ValueError(f"{series!r} names {len(found)} series: use an id, one of {', '.join(s.series_id for s in found)}")
+    raise ValueError(f"{series!r} is not a stored {hint}")
+
+
 def _filter(table: str, key: str, dataset: str | None) -> tuple[str, list[str]]:
     """WHERE clause and its arguments for one series, matching the start of the table's index."""
     if table not in _PRICE_TABLES and table not in _VALUE_TABLES:

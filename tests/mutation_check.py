@@ -336,13 +336,13 @@ MUTATIONS = [
     # Caught only by test_prod.py's index test.
     ("catalog.py", '"forex.prices": ("symbol", None)', '"forex.prices": ("date", None)'),
     # fred: lookup, gaps and labels (offline), then the SQL (test_prod.py).
-    ("fred.py", 'return " ".join(text.split()).lower()', "return text.lower()"),
-    ("fred.py", 'return " ".join(text.split()).lower()', 'return " ".join(text.split())'),
-    ("fred.py", "if s.series_id.lower() == key]", "if s.series_id == key]"),
-    ("fred.py", "             or [s for s in stored if s.name", "             and [s for s in stored if s.name"),
-    ("fred.py", "if s.name is not None and _key(s.name) == key])", "if s.name is not None and s.name == key])"),
-    ("fred.py", "    if len(found) == 1:\n", "    if len(found) >= 1:\n"),
-    ("fred.py", "    if found:\n        raise", "    if False:\n        raise"),
+    ("_readers.py", 'return " ".join(text.split()).lower()', "return text.lower()"),
+    ("_readers.py", 'return " ".join(text.split()).lower()', 'return " ".join(text.split())'),
+    ("_readers.py", "if s.series_id.lower() == key]", "if s.series_id == key]"),
+    ("_readers.py", "             or [s for s in stored if s.name", "             and [s for s in stored if s.name"),
+    ("_readers.py", "if s.name is not None and _key(s.name) == key])", "if s.name is not None and s.name == key])"),
+    ("_readers.py", "    if len(found) == 1:\n", "    if len(found) >= 1:\n"),
+    ("_readers.py", "    if found:\n        raise", "    if False:\n        raise"),
     ("fred.py", "for v in values if v.value is not None]", "for v in values]"),
     ("fred.py", "units=picked.units)", "units=v.units)"),
     ("fred.py", "name=picked.name, date", "name=picked.series_id, date"),
@@ -352,7 +352,8 @@ MUTATIONS = [
      "return [FredSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)][1:]"),
     ("fred.py", "    if picked.series_id != guess:\n", "    if False:\n"),
     ("fred.py", "    if picked.series_id != guess:\n", "    if True:\n"),
-    ("fred.py", 'guess = _key(series).upper() if', "guess = _key(series) if"),
+    ("fred.py", 'guess = _readers._key(series).upper() if', "guess = _readers._key(series) if"),
+    ("fred.py", '_HINT = "FRED series: use', '_HINT = "BLS series: use'),
     # Labels from the latest row can't be told from the earliest yet: every series' rows carry the same labels.
     ("fred.py", "WHERE o.series_id = s.series_id ORDER BY date DESC LIMIT 1) l",
      "WHERE o.series_id = 'DFF' ORDER BY date DESC LIMIT 1) l"),
@@ -361,6 +362,24 @@ MUTATIONS = [
     ("fred.py", '_TABLE = "macro.observations"', '_TABLE = "macro.economic_indicators"'),
     ("sync.py", "fred = _sync(_fred.fred)", "fred = None"),
     ("sync.py", "fred_series = _sync(_fred.fred_series)", "fred_series = None"),
+    # bls: lookup, gaps and labels (offline), then the SQL (test_prod.py). The lookup itself is _readers.py's, above.
+    # Labels from the latest row, and the value filters on the dates, can't be told apart yet: every series' rows carry
+    # the same labels, and none starts or ends on a NULL.
+    ("bls.py", "for v in values if v.value is not None]", "for v in values]"),
+    ("bls.py", "units=picked.units)", "units=v.units)"),
+    ("bls.py", "name=picked.name, date", "name=picked.series_id, date"),
+    ("bls.py", "    _readers._check_range(start, end)\n    picked", "    picked"),
+    ("bls.py", "start, end, picked.dataset)", 'start, end, "bls/core")'),
+    ("bls.py", "start, end, picked.dataset)", "start, start, picked.dataset)"),
+    ("bls.py", "return [BlsSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)]",
+     "return [BlsSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)][1:]"),
+    ("bls.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
+    ("bls.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
+    ("bls.py", "WHERE provider = 'bls' ORDER BY", "WHERE provider = 'bea' ORDER BY"),
+    ("bls.py", '_HINT = "BLS series: use', '_HINT = "FRED series: use'),
+    ("bls.py", '_TABLE = "indicators.bls"', '_TABLE = "indicators.bea"'),
+    ("sync.py", "bls = _sync(_bls.bls)", "bls = None"),
+    ("sync.py", "bls_series = _sync(_bls.bls_series)", "bls_series = None"),
 ]
 
 
