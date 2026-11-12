@@ -1,4 +1,5 @@
-"""The two readers every series function calls: one for daily price bars, one for single values.
+"""The two readers every series function calls, one for daily price bars and one for single values, and the
+id-or-name lookup fred() and bls() share.
 
 Private: apps call the named series functions, never these. Table and column names come only
 from the constants below; caller input reaches SQL only as $n parameters.
