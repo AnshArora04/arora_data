@@ -4,13 +4,16 @@ The series are whatever macro.observations holds (the main repo's FRED_SERIES), 
 fred_series() maps each series id to its name, units, frequency and category, taken from the series' latest row
 (older rows are relabelled only by the main repo's Saturday full re-read). Rows are served as stored, except gaps:
 - a NULL value is a real gap and is left out, never filled: market holidays on daily series, the October 2025 BLS
-  report that was never published (2025-10-01), a few GASREGW weeks in 1990-91;
+  report that was never published (2025-10-01), a few GASREGW weeks in 1990-91, UMCSENT's months between its
+  quarterly surveys (1952-77);
 - monthly and quarterly values are dated at the period's start; FYOINT (annual) at the fiscal year's end, 09-30
   (06-30 before 1976);
 - IORB carries a value dated one day ahead, so a default end (today) leaves it out; THREEFYTP10 lags about three
   business days;
-- not here: Treasury yields are treasury(); GDP, CPI and unemployment are in macro.economic_indicators (FMP); derived
-  metrics such as T10Y2Y and T5YIFR are computed from stored series, never stored.
+- not here: Treasury yields are treasury(); GDP and real GDP (A191RC, A191RX) are in indicators.bea; the headline
+  unemployment rate (LNS14000000) and payrolls (CES0000000001) are in indicators.bls; derived metrics such as the
+  monthly Fed funds rate (the month's mean of DFF, to 2 dp, complete months only), T10Y2Y and T5YIFR are computed
+  from stored series, never stored.
 """
 from __future__ import annotations
 
