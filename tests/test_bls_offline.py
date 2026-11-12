@@ -63,7 +63,7 @@ def test_an_id_or_name_in_any_case_and_spacing_is_the_same_series_read_in_its_da
 
 
 def test_the_range_reaches_the_read_and_end_defaults_to_today_eastern(db, monkeypatch):
-    monkeypatch.setattr(bl, "today_et", lambda: M9)
+    monkeypatch.setattr(bl._readers, "today_et", lambda: M9)
     assert [v.date for v in asyncio.run(bl.bls("LNS14000000", M9))] == [M9]
     assert db[-1] == ("indicators.bls", "LNS14000000", M9, M9, "bls/core")
 

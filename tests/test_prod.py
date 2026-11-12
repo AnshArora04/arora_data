@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, bls, catalog, commodities, crypto, forex, fred, index, series, sync, treasury, treasury_curve
+from arora_data import _db, _readers, bea, bls, catalog, commodities, crypto, forex, fred, index, series, sync, treasury, treasury_curve
 from arora_data.dates import today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -412,3 +412,33 @@ def test_bls_is_the_tables_values_with_its_gaps_left_out():
     assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
     assert {(v.series_id, v.units) for v in served} == {("LNS14000000", "percent")}
     assert sync.bls("lns14000000", start, end) == served
+
+
+_BEA_LATEST_SQL = """
+SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
+  FROM indicators.bea ORDER BY series_id, date DESC
+"""
+_BEA_DATES_SQL = """
+SELECT series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.bea WHERE value IS NOT NULL GROUP BY series_id
+"""
+
+
+def test_bea_series_is_every_series_with_its_latest_labels_and_value_dates():
+    dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_BEA_DATES_SQL)}
+    expected = [bea.BeaSeries(**dict(r), first_date=dates[r["series_id"]][0], latest_date=dates[r["series_id"]][1])
+                for r in query(_BEA_LATEST_SQL)]
+    stored = sync.bea_series()
+    assert len(stored) >= 21 and stored == expected
+    assert len({s.dataset for s in stored}) >= 6
+    assert all(_readers._resolve(s.name, stored, bea._HINT) is s for s in stored)  # every name looks its series up
+
+
+def test_bea_is_the_tables_values_in_their_own_dataset():
+    start, end = date(2024, 1, 1), date(2025, 12, 31)
+    rows = query("SELECT date, value FROM indicators.bea WHERE dataset = $1 AND series_id = $2 AND date BETWEEN $3 AND $4"
+                 " ORDER BY date", "bea/nipa_t10101", "A191RL", start, end)
+    served = sync.bea("real gdp, percent change (annual rate)", start, end)
+    assert len(rows) == 8 and [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows]
+    assert {(v.series_id, v.units) for v in served} == {("A191RL", "percent change, annual rate")}
+    assert sync.bea("a191rl", start, end) == served

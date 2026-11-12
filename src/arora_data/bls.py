@@ -13,12 +13,8 @@ is 4.4%). Rows are served as stored, except gaps:
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
 
 from arora_data import _readers
-from arora_data._db import connection, fetch
-from arora_data.catalog import _Row
-from arora_data.dates import today_et
 
 _TABLE = "indicators.bls"
 
@@ -37,34 +33,14 @@ SELECT series_id, dataset, l.name, l.units, l.frequency, l.category, d.first_dat
 _HINT = "BLS series: use an id or name from bls_series(), such as LNS14000000 or 'Unemployment rate (SA)'"
 
 
-class BlsSeries(_Row):
-    """One stored series. The dates are its first and latest with a value."""
-
-    series_id: str
-    dataset: str
-    name: str | None
-    units: str | None
-    frequency: str | None
-    category: str | None
-    first_date: dt.date | None
-    latest_date: dt.date | None
-
-
-class BlsValue(_Row):
-    """One series' value for one month, in its units."""
-
-    series_id: str
-    name: str | None
-    date: dt.date
-    value: Decimal
-    units: str | None
+BlsSeries = _readers.IndicatorSeries
+BlsValue = _readers.IndicatorValue
 
 
 async def bls_series() -> list[BlsSeries]:
     """Every stored BLS series by id, with its name, units, frequency and category. Source: BLS, via
     indicators.bls."""
-    async with connection() as conn:
-        return [BlsSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)]
+    return await _readers._indicator_series(_SERIES_SQL)
 
 
 async def bls(series: str, start: dt.date, end: dt.date | None = None) -> list[BlsValue]:
@@ -73,9 +49,4 @@ async def bls(series: str, start: dt.date, end: dt.date | None = None) -> list[B
     series is a stored series' id or name from bls_series(), such as "LNS14000000" or "unemployment rate (sa)" (any
     case). Months with no value are left out. An unknown series, or a name two series share, raises ValueError.
     """
-    end = end or today_et()
-    _readers._check_range(start, end)
-    picked = _readers._resolve(series, await bls_series(), _HINT)
-    values = await _readers._read_values(_TABLE, picked.series_id, start, end, picked.dataset)
-    return [BlsValue(series_id=picked.series_id, name=picked.name, date=v.date, value=v.value, units=picked.units)
-            for v in values if v.value is not None]
+    return await _readers._indicator(_TABLE, bls_series, _HINT, series, start, end)

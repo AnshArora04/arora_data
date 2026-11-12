@@ -1,5 +1,5 @@
-"""The two readers every series function calls, one for daily price bars and one for single values, and the
-id-or-name lookup fred() and bls() share.
+"""The two readers every series function calls, one for daily price bars and one for single values, the
+id-or-name lookup fred(), bls() and bea() share, and the series list and read every indicators.* function shares.
 
 Private: apps call the named series functions, never these. Table and column names come only
 from the constants below; caller input reaches SQL only as $n parameters.
@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from arora_data._db import connection, fetch
 from arora_data.catalog import SERIES, _Row
+from arora_data.dates import today_et
 
 # Price table: its extra column (the commodity tables have currency, the others vwap).
 _PRICE_TABLES: dict[str, str] = {
@@ -139,3 +140,42 @@ async def _latest(table: str, key: str, dataset: str | None) -> tuple[date | Non
     async with connection() as conn:
         rows = await fetch(conn, sql, *args)
     return (rows[0]["date"], rows[0]["frequency"]) if rows else (None, None)
+
+
+class IndicatorSeries(_Row):
+    """One stored indicators.* series. The dates are its first and latest with a value."""
+
+    series_id: str
+    dataset: str
+    name: str | None
+    units: str | None
+    frequency: str | None
+    category: str | None
+    first_date: dt.date | None
+    latest_date: dt.date | None
+
+
+class IndicatorValue(_Row):
+    """One indicators.* series' value for one period, in its units."""
+
+    series_id: str
+    name: str | None
+    date: dt.date
+    value: Decimal
+    units: str | None
+
+
+async def _indicator_series(sql: str) -> list[IndicatorSeries]:
+    """The series list one indicators.* module's constant sql returns."""
+    async with connection() as conn:
+        return [IndicatorSeries(**dict(r)) for r in await fetch(conn, sql)]
+
+
+async def _indicator(table: str, list_series, hint: str, series: str, start: date, end: date | None) -> list[IndicatorValue]:
+    """One indicators.* series' values, read in its own dataset, gaps left out. list_series() is that table's list."""
+    end = end or today_et()
+    _check_range(start, end)
+    picked = _resolve(series, await list_series(), hint)
+    values = await _read_values(table, picked.series_id, start, end, picked.dataset)
+    return [IndicatorValue(series_id=picked.series_id, name=picked.name, date=v.date, value=v.value, units=picked.units)
+            for v in values if v.value is not None]

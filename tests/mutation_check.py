@@ -362,17 +362,20 @@ MUTATIONS = [
     ("fred.py", '_TABLE = "macro.observations"', '_TABLE = "macro.economic_indicators"'),
     ("sync.py", "fred = _sync(_fred.fred)", "fred = None"),
     ("sync.py", "fred_series = _sync(_fred.fred_series)", "fred_series = None"),
-    # bls: lookup, gaps and labels (offline), then the SQL (test_prod.py). The lookup itself is _readers.py's, above.
+    # bls and bea share _readers.py's indicator list and read, broken once here; each module's own SQL is below.
+    ("_readers.py", "for v in values if v.value is not None]", "for v in values]"),
+    ("_readers.py", "units=picked.units)", "units=v.units)"),
+    ("_readers.py", "name=picked.name, date", "name=picked.series_id, date"),
+    ("_readers.py", "    _check_range(start, end)\n    picked", "    picked"),
+    ("_readers.py", "start, end, picked.dataset)", 'start, end, "bls/core")'),
+    ("_readers.py", "start, end, picked.dataset)", "start, start, picked.dataset)"),
+    ("_readers.py", "return [IndicatorSeries(**dict(r)) for r in await fetch(conn, sql)]",
+     "return [IndicatorSeries(**dict(r)) for r in await fetch(conn, sql)][1:]"),
+    ("bls.py", "_indicator(_TABLE, bls_series, _HINT", "_indicator(_TABLE, bls_series, \"BLS\""),
+    ("bea.py", "_indicator(_TABLE, bea_series, _HINT", "_indicator(_TABLE, bea_series, \"BEA\""),
+    # bls: the SQL (test_prod.py). The lookup is _readers.py's, above.
     # Labels from the latest row, and the value filters on the dates, can't be told apart yet: every series' rows carry
     # the same labels, and none starts or ends on a NULL.
-    ("bls.py", "for v in values if v.value is not None]", "for v in values]"),
-    ("bls.py", "units=picked.units)", "units=v.units)"),
-    ("bls.py", "name=picked.name, date", "name=picked.series_id, date"),
-    ("bls.py", "    _readers._check_range(start, end)\n    picked", "    picked"),
-    ("bls.py", "start, end, picked.dataset)", 'start, end, "bls/core")'),
-    ("bls.py", "start, end, picked.dataset)", "start, start, picked.dataset)"),
-    ("bls.py", "return [BlsSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)]",
-     "return [BlsSeries(**dict(r)) for r in await fetch(conn, _SERIES_SQL)][1:]"),
     ("bls.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
     ("bls.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
     ("bls.py", "WHERE provider = 'bls' ORDER BY", "WHERE provider = 'bea' ORDER BY"),
@@ -380,6 +383,15 @@ MUTATIONS = [
     ("bls.py", '_TABLE = "indicators.bls"', '_TABLE = "indicators.bea"'),
     ("sync.py", "bls = _sync(_bls.bls)", "bls = None"),
     ("sync.py", "bls_series = _sync(_bls.bls_series)", "bls_series = None"),
+    # bea: as bls, over six datasets. The same three can't be told apart yet, and no value is NULL in prod either.
+    ("bea.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
+    ("bea.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
+    ("bea.py", "WHERE provider = 'bea' ORDER BY", "WHERE provider = 'bls' ORDER BY"),
+    ("bea.py", "SELECT series_id, dataset, l.name", "SELECT series_id, 'bea/nipa_t10105' AS dataset, l.name"),
+    ("bea.py", '_HINT = "BEA series: use', '_HINT = "BLS series: use'),
+    ("bea.py", '_TABLE = "indicators.bea"', '_TABLE = "indicators.bls"'),
+    ("sync.py", "bea = _sync(_bea.bea)", "bea = None"),
+    ("sync.py", "bea_series = _sync(_bea.bea_series)", "bea_series = None"),
 ]
 
 

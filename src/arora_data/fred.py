@@ -10,8 +10,8 @@ fred_series() maps each series id to its name, units, frequency and category, ta
   (06-30 before 1976);
 - IORB carries a value dated one day ahead, so a default end (today) leaves it out; THREEFYTP10 lags about three
   business days;
-- not here: Treasury yields are treasury(); GDP and real GDP (A191RC, A191RX) are in indicators.bea; the headline
-  unemployment rate (LNS14000000) and payrolls (CES0000000001) are in indicators.bls; derived metrics such as the
+- not here: Treasury yields are treasury(); GDP and real GDP are bea("A191RC") and bea("A191RX"); the headline
+  unemployment rate and payrolls are bls("LNS14000000") and bls("CES0000000001"); derived metrics such as the
   monthly Fed funds rate (the month's mean of DFF, to 2 dp, complete months only), T10Y2Y and T5YIFR are computed
   from stored series, never stored.
 """
