@@ -72,15 +72,16 @@ def _key(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def _resolve(series: str, stored: list, hint: str):
-    """The one stored series whose id, or else name, is series in any case and spacing. hint ends the error."""
+def _resolve(series: str, stored: list, hint: str, id: str = "series_id", name: str = "name"):
+    """The one stored item whose id, or else name, is series in any case and spacing. id and name are its
+    attributes' names; hint ends the error."""
     key = _key(series) if isinstance(series, str) else None
-    found = ([s for s in stored if s.series_id.lower() == key]
-             or [s for s in stored if s.name is not None and _key(s.name) == key])
+    found = ([s for s in stored if getattr(s, id).lower() == key]
+             or [s for s in stored if getattr(s, name) is not None and _key(getattr(s, name)) == key])
     if len(found) == 1:
         return found[0]
     if found:
-        raise ValueError(f"{series!r} names {len(found)} series: use an id, one of {', '.join(s.series_id for s in found)}")
+        raise ValueError(f"{series!r} names {len(found)} series: use an id, one of {', '.join(getattr(s, id) for s in found)}")
     raise ValueError(f"{series!r} is not a stored {hint}")
 
 

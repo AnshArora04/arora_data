@@ -102,6 +102,8 @@ TABLES: dict[str, tuple[str, str | None]] = {
     "indicators.ofr": ("OFR. Financial stability series.", "date"),
     "indicators.treasury_fiscal": ("US Treasury. Fiscal data series.", "date"),
     "indicators.usda": ("USDA. Agriculture series.", "date"),
+    "macro.damodaran_country_risk": ("Aswath Damodaran, NYU Stern. Country risk premiums by edition.", "edition_date"),
+    "macro.damodaran_crp_editions": ("Aswath Damodaran, NYU Stern. Country risk premium editions.", "edition_date"),
     "macro.economic_indicators": ("FMP. Named economic indicators.", "date"),
     "macro.market_risk_premium": ("FMP. Equity and country risk premium by country.", "date"),
     "macro.observations": ("FRED. Macro time series.", "date"),

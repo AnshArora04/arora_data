@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from types import NoneType
 from typing import Any, Literal, get_args, get_origin
@@ -11,7 +11,9 @@ import polars as pl
 from pydantic import BaseModel
 
 # Decimal is left for Polars to infer, because each column has its own scale.
-_DTYPES: dict[Any, Any] = {str: pl.String, int: pl.Int64, bool: pl.Boolean, date: pl.Date, Decimal: None}
+# Datetimes are shown in US/Eastern, like every time the package serves.
+_DTYPES: dict[Any, Any] = {str: pl.String, int: pl.Int64, bool: pl.Boolean, date: pl.Date,
+                           datetime: pl.Datetime("us", "America/New_York"), Decimal: None}
 
 
 def _dtype(annotation: Any) -> Any:

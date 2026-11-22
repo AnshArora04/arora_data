@@ -4,8 +4,8 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _db, _readers, bea, bls, catalog, commodities, crypto, forex, fred, index, series, sync, treasury, treasury_curve
-from arora_data.dates import today_et
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve
+from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
 
@@ -382,6 +382,132 @@ def test_fred_is_the_tables_values_with_its_gaps_left_out():
     assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
     assert {(v.series_id, v.units) for v in served} == {("DFII10", "Percent")}
     assert sync.fred("dfii10", start, end) == served
+
+
+_DAMODARAN_EDITIONS_SQL = """
+SELECT edition_date, revision, file_name, first_seen_at, mature_erp, us_erp, vol_multiplier, cds_benchmark, editor_note
+  FROM macro.damodaran_crp_editions
+"""
+
+
+def test_damodaran_editions_is_the_table_oldest_first_with_each_editions_newest_by_first_seen_flagged():
+    rows = sorted(query(_DAMODARAN_EDITIONS_SQL), key=lambda r: (r["edition_date"], r["first_seen_at"], r["revision"]))
+    newest = {}
+    for r in rows:  # sorted, so the last one seen per edition wins
+        newest[r["edition_date"]] = r["revision"]
+    expected = [damodaran_editions.CrpEdition(**dict(r), latest=newest[r["edition_date"]] == r["revision"]) for r in rows]
+    stored = sync.damodaran_editions()
+    assert len(stored) >= 18 and stored == expected
+    assert [(e.revision, e.latest) for e in stored if e.edition_date == date(2026, 1, 1)] == [
+        (1, False), (2, False), (3, False), (4, True)]
+    assert all(e.first_seen_at.tzinfo is EASTERN for e in stored)
+    assert stored[-1].edition_date == date(2026, 7, 1) and stored[-1].first_seen_at.date() == date(2026, 11, 12)
+
+
+def test_damodaran_editions_sql_flags_the_newest_by_first_seen_not_by_revision_number():
+    # Prod's revision numbers follow first_seen_at, so feed the SQL a table where they don't.
+    fake = """(VALUES (date '2026-01-01', 1::smallint, 'f', timestamptz '2026-02-17', 0.04, NULL::numeric, NULL::numeric,
+                       NULL::text, NULL::text),
+                      (date '2026-01-01', 2::smallint, 'f', timestamptz '2026-01-07', 0.04, NULL, NULL, NULL, NULL))
+               AS t(edition_date, revision, file_name, first_seen_at, mature_erp, us_erp, vol_multiplier,
+                    cds_benchmark, editor_note)"""
+    sql = damodaran_editions._EDITIONS_SQL.replace("macro.damodaran_crp_editions", fake)
+    assert sql != damodaran_editions._EDITIONS_SQL
+    assert [(r["revision"], r["latest"]) for r in query(sql)] == [(2, False), (1, True)]
+
+
+_DAMODARAN_VIEW_SQL = """
+SELECT edition_date, revision, entity_code, published_name, entity_type, region, moodys_rating, basis, prs_score,
+       default_spread, cds_spread_net, crp, cds_crp, erp, cds_erp
+  FROM macro.damodaran_country_risk_latest_revision WHERE edition_date = $1
+"""
+
+
+def test_damodaran_rows_are_the_latest_revision_views_edition_in_force():
+    rows = sync._sync(_damodaran._rows)
+    latest = max(e.edition_date for e in sync.damodaran_editions())
+    expected = sorted((_damodaran._CountryRisk(**dict(r)) for r in query(_DAMODARAN_VIEW_SQL, latest)),
+                      key=lambda r: r.entity_code)
+    served = rows(None, None, None)
+    assert len(served) >= 178 and served == expected
+    assert {"AE-AZ", "AE-RK", "AE-SH", "VCT"} <= {r.entity_code for r in served}  # the four FMP never carried
+    january = rows(None, date(2026, 3, 31), None)
+    assert {(r.edition_date, r.revision) for r in january} == {(date(2026, 1, 1), 4)}
+    assert [r for r in january if r.entity_code == "KEN"][0].moodys_rating == "B3"  # the Feb 16 re-issue
+    assert rows("usa", date(2026, 3, 31), 1)[0].erp == Decimal("0.0447")  # January as first posted
+
+
+def test_country_risk_premium_is_the_views_premiums_with_the_us_unscaled():
+    latest = max(e.edition_date for e in sync.damodaran_editions())
+    view = sorted(query(_DAMODARAN_VIEW_SQL, latest), key=lambda r: r["entity_code"])
+    served = sync.country_risk_premium()
+    assert [(r.edition_date, r.entity_code, r.published_name, r.crp, r.cds_crp) for r in served] == [
+        (r["edition_date"], r["entity_code"], r["published_name"], r["crp"], r["cds_crp"]) for r in view]
+    usa = {r["entity_code"]: r for r in view}["USA"]
+    assert usa["crp"] == usa["default_spread"]  # the US premium is its raw Aa1 spread
+    assert sync.country_risk_premium("United States")[0].crp == usa["crp"]
+
+
+_DAMODARAN_ERP_SQL = """
+SELECT c.edition_date, c.entity_code, c.basis, c.crp, c.erp, c.cds_crp, c.cds_erp, e.mature_erp, e.us_erp
+  FROM macro.damodaran_country_risk_latest_revision c JOIN macro.damodaran_crp_editions e USING (edition_date, revision)
+"""
+
+
+def test_equity_risk_premium_is_the_views_premiums_and_mature_plus_crp_but_for_two_published_exceptions():
+    latest = max(e.edition_date for e in sync.damodaran_editions())
+    view = sorted(query(_DAMODARAN_VIEW_SQL, latest), key=lambda r: r["entity_code"])
+    erp = sync.equity_risk_premium
+    assert [(r.edition_date, r.entity_code, r.published_name, r.erp, r.cds_erp) for r in erp()] == [
+        (r["edition_date"], r["entity_code"], r["published_name"], r["erp"], r["cds_erp"]) for r in view]
+    rows = query(_DAMODARAN_ERP_SQL)
+    off = {(r["edition_date"], r["entity_code"]) for r in rows if r["erp"] != r["mature_erp"] + r["crp"]}
+    us = {(r["edition_date"], "USA") for r in rows if r["entity_code"] == "USA" and r["us_erp"] is not None}
+    prs_2017 = {(r["edition_date"], r["entity_code"]) for r in rows
+                if r["edition_date"] == date(2017, 1, 5) and r["basis"] == "prs"}
+    assert len(us) >= 3 and len(prs_2017) == 24 and off == us | prs_2017  # the docstring's two exceptions, no others
+    assert all(r["erp"] == r["us_erp"] for r in rows if (r["edition_date"], r["entity_code"]) in us)
+    assert all(r["cds_erp"] == r["mature_erp"] + r["cds_crp"] for r in rows if r["cds_erp"] is not None)
+    assert erp("Guinea", date(2017, 1, 5))[0].erp == Decimal("0.2")
+
+
+_DAMODARAN_SPREAD_SQL = """
+SELECT c.edition_date, c.basis, c.default_spread, c.cds_spread_net, c.cds_crp, c.cds_erp, e.cds_benchmark
+  FROM macro.damodaran_country_risk_latest_revision c JOIN macro.damodaran_crp_editions e USING (edition_date, revision)
+"""
+
+
+def test_sovereign_spread_is_the_views_spreads_as_its_docstring_describes():
+    latest = max(e.edition_date for e in sync.damodaran_editions())
+    view = sorted(query(_DAMODARAN_VIEW_SQL, latest), key=lambda r: r["entity_code"])
+    served = sync.sovereign_spread()
+    assert [(r.edition_date, r.entity_code, r.published_name, r.default_spread, r.cds_spread_net) for r in served] == [
+        (r["edition_date"], r["entity_code"], r["published_name"], r["default_spread"], r["cds_spread_net"])
+        for r in view]
+    rows = query(_DAMODARAN_SPREAD_SQL)
+    assert all(r["default_spread"] is not None for r in rows)
+    assert all(r["cds_spread_net"] >= 0 for r in rows if r["cds_spread_net"] is not None)
+    assert all((r["cds_spread_net"] is None) == (r["cds_crp"] is None) == (r["cds_erp"] is None) for r in rows)
+    assert all(r["cds_spread_net"] is None for r in rows if r["basis"] == "prs")
+    benchmark = {r["edition_date"]: r["cds_benchmark"] for r in rows}
+    assert {b for d, b in benchmark.items() if d <= date(2025, 1, 1)} == {"US"}
+    assert {b for d, b in benchmark.items() if d >= date(2025, 7, 1)} == {"Switzerland"}
+
+
+def test_sovereign_rating_is_the_views_ratings_with_barbados_july_2026_as_his_file_has_it():
+    latest = max(e.edition_date for e in sync.damodaran_editions())
+    view = sorted(query(_DAMODARAN_VIEW_SQL, latest), key=lambda r: r["entity_code"])
+    rating = sync.sovereign_rating
+    assert [(r.edition_date, r.entity_code, r.basis, r.moodys_rating, r.prs_score) for r in rating()] == [
+        (r["edition_date"], r["entity_code"], r["basis"], r["moodys_rating"], r["prs_score"]) for r in view]
+    july, april = date(2026, 7, 1), date(2026, 4, 1)
+    assert rating("Barbados", april)[0].moodys_rating == "B2"
+    assert rating("BRB", july)[0].moodys_rating == "C"  # the docstring's known source issue
+    rows = sync._sync(_damodaran._rows)
+    brb, blr = rows("BRB", july, None)[0], rows("BLR", july, None)[0]
+    assert (brb.default_spread, brb.crp, brb.erp) == (blr.default_spread, blr.crp, blr.erp) == (
+        Decimal("0.1750000000"), Decimal("0.2720367171"), Decimal("0.3140367171"))
+    assert rating("VEN", july)[0].moodys_rating == "Caa3"  # S&P's CCC-, Moody's withdrawn
 
 
 _BLS_LATEST_SQL = """

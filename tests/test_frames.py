@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import polars as pl
@@ -65,3 +65,15 @@ def test_values_too_long_for_polars_raise_instead_of_turning_null():
     rows = [price(Decimal("0.000000000000000000000000000001")), price(Decimal("123456789012"))]
     with pytest.raises(ValueError, match="close"):
         to_df(rows, Price)
+
+
+def test_datetimes_keep_their_instant_shown_in_eastern():
+    from arora_data.damodaran_editions import CrpEdition
+
+    seen = datetime(2026, 11, 13, 3, 49, 5, tzinfo=timezone.utc)
+    row = CrpEdition(edition_date=date(2026, 7, 1), revision=1, file_name="ctrypremJuly26.xlsx", first_seen_at=seen,
+                     mature_erp=Decimal("0.042"), us_erp=None, vol_multiplier=None, cds_benchmark=None,
+                     editor_note=None, latest=True)
+    df = to_df([row], CrpEdition)
+    assert df.schema["first_seen_at"] == pl.Datetime("us", "America/New_York")
+    assert df["first_seen_at"][0] == seen and df["first_seen_at"].dt.date()[0] == date(2026, 11, 12)
