@@ -39,6 +39,93 @@ flowchart LR
   LIB --> NB["Research notebooks"]
 ```
 
+### How it runs
+
+Five services on Railway. `beat` puts each scheduled job on the Redis queue and `worker` runs it, writing to Supabase.
+The `watchdog` runs on its own, so a stuck worker can't silence it: it checks the data's freshness and the queue's
+depth, and emails an alert when either goes wrong.
+
+```mermaid
+flowchart TB
+  SRC["20 data sources"]
+  subgraph RW["Railway"]
+    direction TB
+    beat["<b>beat</b><br/>Celery beat: schedules the jobs<br/><i>+ volume</i>"]
+    api["<b>api</b><br/>FastAPI service"]
+    watchdog["<b>watchdog</b><br/>independent monitor, every ~20 min"]
+    redis[("<b>Redis</b><br/>job queue and cache<br/><i>+ volume</i>")]
+    worker["<b>worker</b><br/>Celery worker: runs the jobs"]
+  end
+  DB[("<b>Supabase PostgreSQL</b><br/>116 tables · ~112M rows")]
+  MAIL["Email"]
+
+  SRC --> worker
+  beat -- "queues jobs" --> redis
+  api -- "cache" --> redis
+  watchdog -- "queue depth" --> redis
+  redis -- "delivers jobs" --> worker
+  worker -- "writes" --> DB
+  api -- "reads" --> DB
+  watchdog -- "reads" --> DB
+  worker -- "daily status email" --> MAIL
+  watchdog -- "alerts" --> MAIL
+```
+
+### The database
+
+116 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
+ones `arora_data` reads; a dashed border means it reads some of their tables so far (`macro` 4 of 6,
+`indicators` 2 of 13).
+
+```mermaid
+flowchart LR
+  subgraph PR["Prices"]
+    direction TB
+    market["<b>market</b><br/>16 tables · 38.3M rows<br/>stocks, dividends, splits, sector data"]
+    equity_indexes["<b>equity_indexes</b><br/>1 table · 0.5M rows<br/><i>index()</i>"]
+    forex["<b>forex</b><br/>1 table · 1.0M rows<br/><i>forex()</i>"]
+    commodities["<b>commodities</b><br/>1 table · 0.4M rows<br/><i>commodities()</i>"]
+    crypto["<b>crypto</b><br/>1 table · 51K rows<br/><i>crypto()</i>"]
+  end
+  subgraph CO["Companies"]
+    direction TB
+    reference["<b>reference</b><br/>23 tables · 1.8M rows<br/>tickers, profiles, peers"]
+    fundamentals["<b>fundamentals</b><br/>19 tables · 1.6M rows<br/>statements, ratios, segments"]
+    estimates["<b>estimates</b><br/>9 tables · 2.9M rows<br/>consensus, grades, targets"]
+    filings["<b>filings</b><br/>2 tables · 1.9M rows<br/>SEC filing metadata"]
+    transcripts["<b>transcripts</b><br/>1 table · 0.1M rows<br/>earnings calls"]
+  end
+  subgraph OW["Ownership and positioning"]
+    direction TB
+    ownership["<b>ownership</b><br/>5 tables · 47.8M rows<br/>13F positions"]
+    holdings["<b>holdings</b><br/>4 tables · 9.5M rows<br/>ETF and fund holdings"]
+    panels["<b>panels</b><br/>1 table · 3.7M rows<br/>CFTC COT, FINRA short volume"]
+    gov["<b>gov</b><br/>4 tables · 2.1M rows<br/>insider and Congress trades"]
+  end
+  subgraph MA["Macro"]
+    direction TB
+    macro["<b>macro</b><br/>6 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea()</i>"]
+  end
+  subgraph EV["Events and news"]
+    direction TB
+    events["<b>events</b><br/>4 tables · 73K rows<br/>earnings, dividend, IPO calendars"]
+    news["<b>news</b><br/>3 tables · 68K rows<br/>NYT articles"]
+    feeds["<b>feeds</b><br/>2 tables · 1K rows<br/>SEC, FDA, NHTSA events"]
+  end
+  PR ~~~ CO ~~~ OW ~~~ MA ~~~ EV
+  market ~~~ equity_indexes ~~~ forex ~~~ commodities ~~~ crypto
+  reference ~~~ fundamentals ~~~ estimates ~~~ filings ~~~ transcripts
+  ownership ~~~ holdings ~~~ panels ~~~ gov
+  macro ~~~ indicators
+  events ~~~ news ~~~ feeds
+
+  classDef read fill:#d3f0dc,stroke:#2e8b57,color:#111
+  classDef part fill:#eef7f0,stroke:#2e8b57,stroke-dasharray:4 3,color:#111
+  class equity_indexes,forex,commodities,crypto read
+  class macro,indicators part
+```
+
 ## Functions
 
 Every function is `async`; `arora_data.sync` has a blocking version of each for notebooks and scripts. Results are
