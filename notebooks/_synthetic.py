@@ -21,7 +21,7 @@ from bisect import bisect_left, bisect_right
 from decimal import Decimal
 from functools import lru_cache
 
-from arora_data import _readers, catalog, crypto, forex, index, sync, treasury
+from arora_data import _db, _readers, catalog, crypto, forex, index, sync, treasury
 from arora_data.commodities import COMMODITIES
 from arora_data.dates import today_et
 
@@ -135,6 +135,11 @@ def use() -> None:
     async def stored(table):
         return set(_SYMBOLS[table])
 
+    async def no_database():
+        raise RuntimeError("synthetic data has no database: this reads something _synthetic.py doesn't replace")
+
+    # Every connection goes through _db._pool, so a read not replaced below fails here instead of showing real data.
+    _db._pool = no_database
     forex._stored = lambda: stored("forex.prices")
     crypto._symbols = lambda: stored("crypto.prices")
     index._symbols = lambda: stored("equity_indexes.prices")
