@@ -31,7 +31,7 @@ MUTATIONS = [
     ("catalog.py", '    if not rows:\n        raise ValueError(f"unknown table: {schema}.{table}")\n', ""),
     ("catalog.py", '"macro.observations": ("series_id", "series_name")', '"macro.observations": ("series_id", None)'),
     ("catalog.py", 'dataset_sql = "dataset" if schema == "indicators" else "NULL::text"', 'dataset_sql = "NULL::text"'),
-    ("frames.py", "date: pl.Date, Decimal: None}", "date: pl.Date, Decimal: pl.Float64}"),
+    ("frames.py", "Decimal: None}", "Decimal: pl.Float64}"),
     ("frames.py", ", schema=schema, infer_schema_length=None)", ", infer_schema_length=None)"),
     ("frames.py", ", schema=schema, infer_schema_length=None)", ", schema=schema, infer_schema_length=1)"),
     ("frames.py", "    if get_origin(annotation) is Literal:\n        return pl.String\n", ""),
