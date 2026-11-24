@@ -416,6 +416,16 @@ MUTATIONS = [
     ("treasury_fiscal.py", '_TABLE = "indicators.treasury_fiscal"', '_TABLE = "indicators.nyfed"'),
     ("sync.py", "treasury_fiscal = _sync(_treasury_fiscal.treasury_fiscal)", "treasury_fiscal = None"),
     ("sync.py", "treasury_fiscal_series = _sync(_treasury_fiscal.treasury_fiscal_series)", "treasury_fiscal_series = None"),
+    # ofr: as treasury_fiscal; DVP's NULL first day, 2018-05-07, sits before its first value.
+    ("ofr.py", "_indicator(_TABLE, ofr_series, _HINT", "_indicator(_TABLE, ofr_series, \"OFR\""),
+    ("ofr.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "min(date) AS first_date"),
+    ("ofr.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
+    ("ofr.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
+    ("ofr.py", "WHERE provider = 'ofr' ORDER BY", "WHERE provider = 'nyfed' ORDER BY"),
+    ("ofr.py", '_HINT = "OFR series: use', '_HINT = "BLS series: use'),
+    ("ofr.py", '_TABLE = "indicators.ofr"', '_TABLE = "indicators.nyfed"'),
+    ("sync.py", "ofr = _sync(_ofr.ofr)", "ofr = None"),
+    ("sync.py", "ofr_series = _sync(_ofr.ofr_series)", "ofr_series = None"),
     # Damodaran: the shared read's edition, revision and country (offline), then the SQL (test_prod.py).
     ("_damodaran.py", "e.edition_date <= on]", "e.edition_date < on]"),
     ("_damodaran.py", "ed = max(before)", "ed = min(before)"),

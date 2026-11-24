@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, nyfed, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve, treasury_fiscal
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, nyfed, ofr, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve, treasury_fiscal
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -649,3 +649,48 @@ def test_treasury_fiscal_parts_add_up_to_the_total_except_treasurys_own_2025_08_
           JOIN indicators.treasury_fiscal i ON i.date = t.date AND i.series_id = 'intragov_hold_amt'
          WHERE t.series_id = 'tot_pub_debt_out_amt' AND abs(p.value + i.value - t.value) >= 0.000001""")
     assert [(r["date"], r["gap"]) for r in rows] == [(date(2025, 8, 4), Decimal("10000"))]
+
+
+_OFR_LATEST_SQL = """
+SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
+  FROM indicators.ofr ORDER BY series_id, date DESC
+"""
+_OFR_DATES_SQL = """
+SELECT series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.ofr WHERE value IS NOT NULL GROUP BY series_id
+"""
+
+
+def test_ofr_series_is_every_series_with_its_latest_labels_and_value_dates():
+    dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_OFR_DATES_SQL)}
+    expected = [ofr.OfrSeries(**dict(r), first_date=dates[r["series_id"]][0], latest_date=dates[r["series_id"]][1])
+                for r in query(_OFR_LATEST_SQL)]
+    stored = sync.ofr_series()
+    assert len(stored) >= 5 and stored == expected
+    # DVP's first stored day, 2018-05-07, has no value.
+    assert {s.series_id: s.first_date for s in stored}["REPO-DVP_AR_OO-P"] == date(2018, 5, 8)
+    assert all(_readers._resolve(s.name, stored, ofr._HINT) is s for s in stored)
+
+
+def test_ofr_is_the_tables_values_with_its_gaps_left_out():
+    start, end = date(2025, 1, 1), date(2025, 2, 28)
+    rows = query("SELECT date, value FROM indicators.ofr WHERE series_id = $1 AND date BETWEEN $2 AND $3"
+                 " ORDER BY date", "REPO-DVP_AR_OO-P", start, end)
+    assert any(r["value"] is None for r in rows)  # days that failed OFR's disclosure threshold
+    served = sync.ofr("dvp repo — avg rate, overnight", start, end)
+    assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
+    assert {(v.series_id, v.units) for v in served} == {("REPO-DVP_AR_OO-P", "percent")}
+    assert sync.ofr("repo-dvp_ar_oo-p", start, end) == served
+
+
+def test_ofr_dvp_gaps_and_negative_days_are_the_ones_the_docstring_names():
+    rows = query("""
+        SELECT count(*) FILTER (WHERE value IS NULL) AS nulls, min(date) FILTER (WHERE value IS NULL) AS first_null,
+               max(date) FILTER (WHERE value IS NULL) AS last_null, count(*) FILTER (WHERE value < 0) AS negative,
+               min(date) FILTER (WHERE value < 0) AS first_negative, max(date) FILTER (WHERE value < 0) AS last_negative
+          FROM indicators.ofr WHERE series_id = 'REPO-DVP_AR_OO-P'""")
+    assert dict(rows[0]) == {"nulls": 96, "first_null": date(2018, 5, 7), "last_null": date(2025, 2, 6),
+                             "negative": 94, "first_negative": date(2020, 3, 24), "last_negative": date(2022, 3, 14)}
+    month_ends = query("SELECT count(*) AS n FROM indicators.ofr WHERE series_id = 'MMF-MMF_TOT-M'"
+                       " AND date <> (date_trunc('month', date) + interval '1 month - 1 day')::date")
+    assert month_ends[0]["n"] == 0

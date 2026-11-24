@@ -1,8 +1,8 @@
 # arora_data
 
 A typed, read-only Python function library that turns the AroraFund market-data platform into research-ready series:
-Treasury curves, FRED, BLS and BEA macro data, New York Fed rates and Fed holdings, federal debt, FX, commodities,
-crypto, equity indexes and Damodaran country risk.
+Treasury curves, FRED, BLS and BEA macro data, New York Fed rates and Fed holdings, repo and money market funds,
+federal debt, FX, commodities, crypto, equity indexes and Damodaran country risk.
 
 ```python
 from datetime import timedelta
@@ -76,7 +76,7 @@ flowchart TB
 
 115 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
 ones `arora_data` reads; a dashed border means it reads some of their tables so far (`macro` 4 of 5,
-`indicators` 4 of 13).
+`indicators` 5 of 13).
 
 ```mermaid
 flowchart LR
@@ -106,7 +106,7 @@ flowchart LR
   subgraph MA["Macro"]
     direction TB
     macro["<b>macro</b><br/>5 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
-    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal()</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr()</i>"]
   end
   subgraph EV["Events and news"]
     direction TB
@@ -141,6 +141,7 @@ pydantic models, and `arora_data.frames.to_df` turns a list of them into a Polar
 | `bea(series, start, end=None)`, `bea_series()` | Six BEA NIPA datasets, by id or name |
 | `nyfed(series, start, end=None)`, `nyfed_series()` | New York Fed reference rates (SOFR, EFFR...) and the Fed's holdings by type, by id or name |
 | `treasury_fiscal(series, start, end=None)`, `treasury_fiscal_series()` | Treasury's daily federal debt (Debt to the Penny) and its two parts, by id or name |
+| `ofr(series, start, end=None)`, `ofr_series()` | OFR's repo rates and volume (DVP, GCF, tri-party) and money market fund assets, by id or name |
 | `forex(base, quote, start, end=None)` | Daily FX bars for any currency pair |
 | `commodities(base, start, end=None, quote="USD")` | Commodity bars, in USD or any FX currency |
 | `crypto(base, start, end=None, quote="USD")` | Crypto bars, in USD or any FX currency |
@@ -180,10 +181,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 
 ## Tests
 
-436 tests in three layers:
+448 tests in three layers:
 
-- **Offline tests** (309) run against a mocked connection, so they need no database.
-- **`tests/test_prod.py`** (127) runs small read-only checks against production when credentials are present, and
+- **Offline tests** (318) run against a mocked connection, so they need no database.
+- **`tests/test_prod.py`** (130) runs small read-only checks against production when credentials are present, and
   skips otherwise.
 - **`tests/mutation_check.py`** breaks one source line at a time and confirms that some test fails. It runs the offline
   tests first, so a caught mutation costs seconds.
@@ -193,14 +194,17 @@ the stored tenors, and `cubic_par` can overshoot between them.
 `notebooks/` has one notebook per reader, with outputs saved. They are the quickest way to see what each function
 returns.
 
-The FRED, BLS, BEA, New York Fed, Treasury fiscal and Damodaran notebooks show real data, run against production. The
-FMP-sourced notebooks (forex, commodities, crypto, index, treasury and treasury_curve) show synthetic data: FMP's
-license doesn't allow displaying its data publicly, so their outputs come from made-up data in
+The FRED, BLS, BEA, New York Fed, Treasury fiscal, OFR and Damodaran notebooks show real data, run against
+production. The FMP-sourced notebooks (forex, commodities, crypto, index, treasury and treasury_curve) show synthetic
+data: FMP's license doesn't allow displaying its data publicly, so their outputs come from made-up data in
 `notebooks/_synthetic.py`, run through the functions' own, unchanged code.
 
 The New York Fed data in `function_nyfed.ipynb` stays under the New York Fed's Terms of Use at newyorkfed.org, not
 this repository's terms, and the notebook carries its full notice. arora_data is not affiliated with the New York Fed.
 The New York Fed does not sanction, endorse, or recommend any products or services offered by arora_data.
+
+The OFR data in `function_ofr.ipynb` comes from the Office of Financial Research's Short-term Funding Monitor, and the
+notebook carries OFR's suggested citation and disclaimer. arora_data is not affiliated with or endorsed by the OFR.
 
 ## Running it
 
