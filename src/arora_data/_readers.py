@@ -1,5 +1,5 @@
 """The two readers every series function calls, one for daily price bars and one for single values, the
-id-or-name lookup fred(), bls() and bea() share, and the series list and read every indicators.* function shares.
+id-or-name lookup fred(), bls(), bea() and nyfed() share, and the series list and read every indicators.* function shares.
 
 Private: apps call the named series functions, never these. Table and column names come only
 from the constants below; caller input reaches SQL only as $n parameters.

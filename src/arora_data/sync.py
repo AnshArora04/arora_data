@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from arora_data import _db, bea as _bea, bls as _bls, catalog, commodities as _commodities, country_risk_premium as _country_risk_premium, crypto as _crypto, damodaran_editions as _damodaran_editions, equity_risk_premium as _equity_risk_premium, forex as _forex, fred as _fred, index as _index, series, sovereign_rating as _sovereign_rating, sovereign_spread as _sovereign_spread, treasury as _treasury, treasury_curve as _treasury_curve
+from arora_data import _db, bea as _bea, bls as _bls, catalog, commodities as _commodities, country_risk_premium as _country_risk_premium, crypto as _crypto, damodaran_editions as _damodaran_editions, equity_risk_premium as _equity_risk_premium, forex as _forex, fred as _fred, index as _index, nyfed as _nyfed, series, sovereign_rating as _sovereign_rating, sovereign_spread as _sovereign_spread, treasury as _treasury, treasury_curve as _treasury_curve
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -46,6 +46,8 @@ bls = _sync(_bls.bls)
 bls_series = _sync(_bls.bls_series)
 bea = _sync(_bea.bea)
 bea_series = _sync(_bea.bea_series)
+nyfed = _sync(_nyfed.nyfed)
+nyfed_series = _sync(_nyfed.nyfed_series)
 damodaran_editions = _sync(_damodaran_editions.damodaran_editions)
 sovereign_rating = _sync(_sovereign_rating.sovereign_rating)
 sovereign_spread = _sync(_sovereign_spread.sovereign_spread)

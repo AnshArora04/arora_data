@@ -397,6 +397,17 @@ MUTATIONS = [
     ("bea.py", '_TABLE = "indicators.bea"', '_TABLE = "indicators.bls"'),
     ("sync.py", "bea = _sync(_bea.bea)", "bea = None"),
     ("sync.py", "bea_series = _sync(_bea.bea_series)", "bea_series = None"),
+    ("nyfed.py", "_indicator(_TABLE, nyfed_series, _HINT", "_indicator(_TABLE, nyfed_series, \"NY Fed\""),
+    # nyfed: as bls, over two datasets; frn's NULL weeks before 2014-05-21 sit before its first value.
+    ("nyfed.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "min(date) AS first_date"),
+    ("nyfed.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
+    ("nyfed.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
+    ("nyfed.py", "WHERE provider = 'nyfed' ORDER BY", "WHERE provider = 'bls' ORDER BY"),
+    ("nyfed.py", "SELECT series_id, dataset, l.name", "SELECT series_id, 'nyfed/soma_summary' AS dataset, l.name"),
+    ("nyfed.py", '_HINT = "New York Fed series: use', '_HINT = "BLS series: use'),
+    ("nyfed.py", '_TABLE = "indicators.nyfed"', '_TABLE = "indicators.bls"'),
+    ("sync.py", "nyfed = _sync(_nyfed.nyfed)", "nyfed = None"),
+    ("sync.py", "nyfed_series = _sync(_nyfed.nyfed_series)", "nyfed_series = None"),
     # Damodaran: the shared read's edition, revision and country (offline), then the SQL (test_prod.py).
     ("_damodaran.py", "e.edition_date <= on]", "e.edition_date < on]"),
     ("_damodaran.py", "ed = max(before)", "ed = min(before)"),
