@@ -107,6 +107,7 @@ TABLES: dict[str, tuple[str, str | None]] = {
     "macro.market_risk_premium": ("FMP. Equity and country risk premium by country.", "date"),
     "macro.observations": ("FRED. Macro time series.", "date"),
     "macro.treasury_rates": ("FMP. Daily treasury yields from 1 month to 30 years.", "date"),
+    "market.daily_prices": ("FMP. Daily stock prices, raw, with split and total-return factors.", "date"),
     "market.dividends": ("FMP. Dividend history.", "ex_date"),
     "market.enterprise_values": ("FMP. Enterprise value and its components.", "date"),
     "market.industry_pe_history": ("FMP. Industry P/E over time.", "date"),
