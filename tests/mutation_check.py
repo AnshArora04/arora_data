@@ -408,6 +408,16 @@ MUTATIONS = [
     ("nyfed.py", '_TABLE = "indicators.nyfed"', '_TABLE = "indicators.bls"'),
     ("sync.py", "nyfed = _sync(_nyfed.nyfed)", "nyfed = None"),
     ("sync.py", "nyfed_series = _sync(_nyfed.nyfed_series)", "nyfed_series = None"),
+    # treasury_fiscal: as nyfed; the parts' NULL days before 1997-09-30 sit before their first value.
+    ("treasury_fiscal.py", "_indicator(_TABLE, treasury_fiscal_series, _HINT", "_indicator(_TABLE, treasury_fiscal_series, \"Treasury\""),
+    ("treasury_fiscal.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "min(date) AS first_date"),
+    ("treasury_fiscal.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
+    ("treasury_fiscal.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
+    ("treasury_fiscal.py", "WHERE provider = 'treasury_fiscal' ORDER BY", "WHERE provider = 'nyfed' ORDER BY"),
+    ("treasury_fiscal.py", '_HINT = ("US Treasury fiscal series: use', '_HINT = ("BLS series: use'),
+    ("treasury_fiscal.py", '_TABLE = "indicators.treasury_fiscal"', '_TABLE = "indicators.nyfed"'),
+    ("sync.py", "treasury_fiscal = _sync(_treasury_fiscal.treasury_fiscal)", "treasury_fiscal = None"),
+    ("sync.py", "treasury_fiscal_series = _sync(_treasury_fiscal.treasury_fiscal_series)", "treasury_fiscal_series = None"),
     # Damodaran: the shared read's edition, revision and country (offline), then the SQL (test_prod.py).
     ("_damodaran.py", "e.edition_date <= on]", "e.edition_date < on]"),
     ("_damodaran.py", "ed = max(before)", "ed = min(before)"),

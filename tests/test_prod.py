@@ -4,7 +4,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, nyfed, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, nyfed, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve, treasury_fiscal
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -606,3 +606,46 @@ def test_nyfed_sofr_skips_good_friday_and_effr_does_not():
     day = date(2026, 4, 3)
     assert [v.date for v in sync.nyfed("sofr", day, day)] == []
     assert [(v.date, v.units) for v in sync.nyfed("effr", day, day)] == [(day, "percent")]
+
+
+_TREASURY_FISCAL_LATEST_SQL = """
+SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
+  FROM indicators.treasury_fiscal ORDER BY series_id, date DESC
+"""
+_TREASURY_FISCAL_DATES_SQL = """
+SELECT series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.treasury_fiscal WHERE value IS NOT NULL GROUP BY series_id
+"""
+
+
+def test_treasury_fiscal_series_is_every_series_with_its_latest_labels_and_value_dates():
+    dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_TREASURY_FISCAL_DATES_SQL)}
+    expected = [treasury_fiscal.TreasuryFiscalSeries(**dict(r), first_date=dates[r["series_id"]][0],
+                                                     latest_date=dates[r["series_id"]][1])
+                for r in query(_TREASURY_FISCAL_LATEST_SQL)]
+    stored = sync.treasury_fiscal_series()
+    assert len(stored) >= 3 and stored == expected
+    assert {s.series_id: s.first_date for s in stored if s.series_id != "intragov_hold_amt"} == {
+        "tot_pub_debt_out_amt": date(1993, 4, 1), "debt_held_public_amt": date(1997, 9, 30)}
+    assert all(_readers._resolve(s.name, stored, treasury_fiscal._HINT) is s for s in stored)
+
+
+def test_treasury_fiscal_is_the_tables_values_with_its_gaps_left_out():
+    start, end = date(2005, 3, 1), date(2005, 4, 30)
+    rows = query("SELECT date, value FROM indicators.treasury_fiscal WHERE series_id = $1 AND date BETWEEN $2 AND $3"
+                 " ORDER BY date", "debt_held_public_amt", start, end)
+    assert any(r["value"] is None for r in rows)  # split out of the total only at month end before 2005-04-04
+    served = sync.treasury_fiscal("debt held by the public", start, end)
+    assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
+    assert [v.date for v in served][:2] == [date(2005, 3, 31), date(2005, 4, 4)]
+    assert {(v.series_id, v.units) for v in served} == {("debt_held_public_amt", "USD millions")}
+    assert sync.treasury_fiscal("DEBT_HELD_PUBLIC_AMT", start, end) == served
+
+
+def test_treasury_fiscal_parts_add_up_to_the_total_except_treasurys_own_2025_08_04():
+    rows = query("""
+        SELECT t.date, p.value + i.value - t.value AS gap FROM indicators.treasury_fiscal t
+          JOIN indicators.treasury_fiscal p ON p.date = t.date AND p.series_id = 'debt_held_public_amt'
+          JOIN indicators.treasury_fiscal i ON i.date = t.date AND i.series_id = 'intragov_hold_amt'
+         WHERE t.series_id = 'tot_pub_debt_out_amt' AND abs(p.value + i.value - t.value) >= 0.000001""")
+    assert [(r["date"], r["gap"]) for r in rows] == [(date(2025, 8, 4), Decimal("10000"))]

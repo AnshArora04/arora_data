@@ -1,8 +1,8 @@
 # arora_data
 
 A typed, read-only Python function library that turns the AroraFund market-data platform into research-ready series:
-Treasury curves, FRED, BLS and BEA macro data, New York Fed rates and Fed holdings, FX, commodities, crypto, equity
-indexes and Damodaran country risk.
+Treasury curves, FRED, BLS and BEA macro data, New York Fed rates and Fed holdings, federal debt, FX, commodities,
+crypto, equity indexes and Damodaran country risk.
 
 ```python
 from datetime import timedelta
@@ -76,7 +76,7 @@ flowchart TB
 
 116 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
 ones `arora_data` reads; a dashed border means it reads some of their tables so far (`macro` 4 of 6,
-`indicators` 3 of 13).
+`indicators` 4 of 13).
 
 ```mermaid
 flowchart LR
@@ -106,7 +106,7 @@ flowchart LR
   subgraph MA["Macro"]
     direction TB
     macro["<b>macro</b><br/>6 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
-    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed()</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal()</i>"]
   end
   subgraph EV["Events and news"]
     direction TB
@@ -140,6 +140,7 @@ pydantic models, and `arora_data.frames.to_df` turns a list of them into a Polar
 | `bls(series, start, end=None)`, `bls_series()` | BLS series, by id or name |
 | `bea(series, start, end=None)`, `bea_series()` | Six BEA NIPA datasets, by id or name |
 | `nyfed(series, start, end=None)`, `nyfed_series()` | New York Fed reference rates (SOFR, EFFR...) and the Fed's holdings by type, by id or name |
+| `treasury_fiscal(series, start, end=None)`, `treasury_fiscal_series()` | Treasury's daily federal debt (Debt to the Penny) and its two parts, by id or name |
 | `forex(base, quote, start, end=None)` | Daily FX bars for any currency pair |
 | `commodities(base, start, end=None, quote="USD")` | Commodity bars, in USD or any FX currency |
 | `crypto(base, start, end=None, quote="USD")` | Crypto bars, in USD or any FX currency |
@@ -179,10 +180,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 
 ## Tests
 
-430 tests in three layers:
+442 tests in three layers:
 
-- **Offline tests** (302) run against a mocked connection, so they need no database.
-- **`tests/test_prod.py`** (128) runs small read-only checks against production when credentials are present, and
+- **Offline tests** (311) run against a mocked connection, so they need no database.
+- **`tests/test_prod.py`** (131) runs small read-only checks against production when credentials are present, and
   skips otherwise.
 - **`tests/mutation_check.py`** breaks one source line at a time and confirms that some test fails. It runs the offline
   tests first, so a caught mutation costs seconds.
@@ -192,10 +193,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 `notebooks/` has one notebook per reader, with outputs saved. They are the quickest way to see what each function
 returns.
 
-The FRED, BLS, BEA, New York Fed and Damodaran notebooks show real data, run against production. The FMP-sourced
-notebooks (forex, commodities, crypto, index, treasury and treasury_curve) show synthetic data: FMP's license doesn't
-allow displaying its data publicly, so their outputs come from made-up data in `notebooks/_synthetic.py`, run through
-the functions' own, unchanged code.
+The FRED, BLS, BEA, New York Fed, Treasury fiscal and Damodaran notebooks show real data, run against production. The
+FMP-sourced notebooks (forex, commodities, crypto, index, treasury and treasury_curve) show synthetic data: FMP's
+license doesn't allow displaying its data publicly, so their outputs come from made-up data in
+`notebooks/_synthetic.py`, run through the functions' own, unchanged code.
 
 The New York Fed data in `function_nyfed.ipynb` stays under the New York Fed's Terms of Use at newyorkfed.org, not
 this repository's terms, and the notebook carries its full notice. arora_data is not affiliated with the New York Fed.
