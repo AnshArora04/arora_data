@@ -28,7 +28,7 @@ class Series:
 
     def __post_init__(self) -> None:
         _readers._filter(self.table, self.key, self.dataset)
-        if self.frequency is None and self.table not in _readers._LABELLED:
+        if self.frequency is None and self.table not in _readers._VALUE_TABLES:
             raise ValueError(f"{self.table} has no frequency column, so the series must set frequency")
         if self.frequency is not None and self.frequency not in MAX_AGE_DAYS:
             raise ValueError(f"frequency must be one of {sorted(MAX_AGE_DAYS)}")

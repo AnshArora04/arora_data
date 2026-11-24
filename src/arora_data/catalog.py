@@ -104,7 +104,6 @@ TABLES: dict[str, tuple[str, str | None]] = {
     "indicators.usda": ("USDA. Agriculture series.", "date"),
     "macro.damodaran_country_risk": ("Aswath Damodaran, NYU Stern. Country risk premiums by edition.", "edition_date"),
     "macro.damodaran_crp_editions": ("Aswath Damodaran, NYU Stern. Country risk premium editions.", "edition_date"),
-    "macro.economic_indicators": ("FMP. Named economic indicators.", "date"),
     "macro.market_risk_premium": ("FMP. Equity and country risk premium by country.", "date"),
     "macro.observations": ("FRED. Macro time series.", "date"),
     "macro.treasury_rates": ("FMP. Daily treasury yields from 1 month to 30 years.", "date"),
@@ -166,7 +165,6 @@ _INDICATOR_TABLES = (
 # "schema.table": (series key column, name column or None).
 SERIES: dict[str, tuple[str, str | None]] = {
     "macro.observations": ("series_id", "series_name"),
-    "macro.economic_indicators": ("indicator", None),
     "commodities.prices": ("symbol", None),
     "crypto.prices": ("symbol", None),
     "equity_indexes.prices": ("symbol", None),

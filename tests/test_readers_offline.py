@@ -92,8 +92,8 @@ def test_indicator_values_filter_on_the_whole_index_prefix(conn):
 
 
 def test_macro_values(conn):
-    asyncio.run(_readers._read_values("macro.economic_indicators", "GDP", START, END))
+    asyncio.run(_readers._read_values("macro.observations", "GDP", START, END))
     assert conn.args == ("GDP", START, END)
-    assert "WHERE indicator = $1 AND date >= $2" in conn.sql
-    assert "NULL::text AS units, NULL::text AS frequency" in conn.sql
+    assert conn.sql.startswith("SELECT date, value, units, frequency FROM macro.observations ")
+    assert "WHERE series_id = $1 AND date >= $2" in conn.sql
 

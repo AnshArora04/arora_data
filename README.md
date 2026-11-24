@@ -25,7 +25,7 @@ research layer on top of it.
 | | |
 |---|---|
 | Sources | 20, including FMP, FRED, SEC EDGAR, BLS, BEA, CFTC, FINRA, DBnomics, the NYT API and Damodaran |
-| Storage | 116 tables in Supabase PostgreSQL, about 112M rows |
+| Storage | 115 tables in Supabase PostgreSQL, about 112M rows |
 | Coverage | Equities, fundamentals, SEC filings, institutional positioning, FX, rates, commodities, macro and alternative data |
 | Scheduling | About 75 daily and weekly jobs on Celery and Redis, with a FastAPI service |
 | Data quality | Validation sweeps, an independent watchdog, and daily status emails on freshness and data quality |
@@ -33,7 +33,7 @@ research layer on top of it.
 ```mermaid
 flowchart LR
   SRC["20 data sources<br/>market · macro · filings · positioning"] --> ING["Ingestion<br/>Celery beat · ~75 jobs"]
-  ING --> DB[("Supabase PostgreSQL<br/>116 tables · ~112M rows")]
+  ING --> DB[("Supabase PostgreSQL<br/>115 tables · ~112M rows")]
   ING --> DQ["Validation sweeps<br/>watchdog · status emails"]
   DQ --> DB
   DB -->|readonly_user, read-only transactions| LIB["arora_data<br/>(this repo)"]
@@ -57,7 +57,7 @@ flowchart TB
     redis[("<b>Redis</b><br/>job queue and cache<br/><i>+ volume</i>")]
     worker["<b>worker</b><br/>Celery worker: runs the jobs"]
   end
-  DB[("<b>Supabase PostgreSQL</b><br/>116 tables · ~112M rows")]
+  DB[("<b>Supabase PostgreSQL</b><br/>115 tables · ~112M rows")]
   MAIL["Email"]
 
   SRC --> worker
@@ -74,8 +74,8 @@ flowchart TB
 
 ### The database
 
-116 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
-ones `arora_data` reads; a dashed border means it reads some of their tables so far (`macro` 4 of 6,
+115 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
+ones `arora_data` reads; a dashed border means it reads some of their tables so far (`macro` 4 of 5,
 `indicators` 4 of 13).
 
 ```mermaid
@@ -105,7 +105,7 @@ flowchart LR
   end
   subgraph MA["Macro"]
     direction TB
-    macro["<b>macro</b><br/>6 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
+    macro["<b>macro</b><br/>5 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
     indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal()</i>"]
   end
   subgraph EV["Events and news"]
@@ -180,10 +180,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 
 ## Tests
 
-442 tests in three layers:
+436 tests in three layers:
 
-- **Offline tests** (311) run against a mocked connection, so they need no database.
-- **`tests/test_prod.py`** (131) runs small read-only checks against production when credentials are present, and
+- **Offline tests** (309) run against a mocked connection, so they need no database.
+- **`tests/test_prod.py`** (127) runs small read-only checks against production when credentials are present, and
   skips otherwise.
 - **`tests/mutation_check.py`** breaks one source line at a time and confirms that some test fails. It runs the offline
   tests first, so a caught mutation costs seconds.

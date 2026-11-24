@@ -18,7 +18,6 @@ TODAY = date(2026, 11, 3)
         {"table": "indicators.bls", "key": "X"},
         {"table": "macro.observations", "key": "GDP", "dataset": "x"},
         {"table": "forex.prices", "key": "USDCAD"},
-        {"table": "macro.economic_indicators", "key": "GDP"},
         {"table": "forex.prices", "key": "USDCAD", "frequency": "hourly"},
     ],
 )
@@ -33,7 +32,6 @@ def test_bad_records_rejected(kwargs):
         {"table": "forex.prices", "key": "USDCAD", "frequency": "daily"},
         {"table": "macro.observations", "key": "GDP"},
         {"table": "indicators.bls", "key": "X", "dataset": "y"},
-        {"table": "macro.economic_indicators", "key": "GDP", "frequency": "quarterly"},
     ],
 )
 def test_good_records_accepted(kwargs):

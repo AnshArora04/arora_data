@@ -112,7 +112,7 @@ def test_reader_returns_a_real_series(table):
 @pytest.mark.parametrize("table", sorted(catalog.SERIES))
 def test_check_fresh_matches_the_latest_row(table):
     key, dataset, latest = sync._sync(_pick)(table)
-    frequency = None if table in _readers._LABELLED else "daily"
+    frequency = None if table in _readers._VALUE_TABLES else "daily"
     result = sync.check_fresh(series.Series(table, key, dataset, frequency), today=latest)
     assert (result.latest_date, result.age_days) == (latest, 0)
 

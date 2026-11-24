@@ -258,7 +258,7 @@ def test_sync_closes_its_pool(fake_pools):
 def test_constants_are_consistent():
     assert {t.split(".")[0] for t in catalog.TABLES} == set(catalog.SCHEMAS)
     assert set(catalog.SERIES) <= set(catalog.TABLES)
-    assert len(catalog.SERIES) == 19
+    assert len(catalog.SERIES) == 18
     assert "ops" not in catalog.SCHEMAS
     assert all(catalog.TABLES[t][1] == "date" for t in catalog.SERIES)
 

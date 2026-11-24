@@ -23,10 +23,10 @@ _PRICE_TABLES: dict[str, str] = {
     "forex.prices": "vwap",
 }
 
-# Value table: the provider value its index starts with, or None outside indicators.*.
+# Value table: the provider value its index starts with, or None outside indicators.*. Every value table carries
+# units and frequency on every row; the price tables carry neither.
 _VALUE_TABLES: dict[str, str | None] = {
     "macro.observations": None,
-    "macro.economic_indicators": None,
     "indicators.bea": "bea",
     "indicators.bls": "bls",
     "indicators.census_asm": "census",
@@ -41,9 +41,6 @@ _VALUE_TABLES: dict[str, str | None] = {
     "indicators.treasury_fiscal": "treasury_fiscal",
     "indicators.usda": "usda",
 }
-
-# Tables that carry units and frequency on every row.
-_LABELLED = {t for t in _VALUE_TABLES if t != "macro.economic_indicators"}
 
 
 class PriceBar(_Row):
@@ -125,18 +122,17 @@ async def _read_values(table: str, key: str, start: date, end: date, dataset: st
         raise ValueError(f"{table} is not a value table")
     where, args = _filter(table, key, dataset)
     _check_range(start, end)
-    labels = "units, frequency" if table in _LABELLED else "NULL::text AS units, NULL::text AS frequency"
     # table is a constant from _VALUE_TABLES.
-    sql = f"SELECT date, value, {labels} FROM {table} "
+    sql = f"SELECT date, value, units, frequency FROM {table} "
     async with connection() as conn:
         rows = await fetch(conn, sql + _in_range(where, len(args)), *args, start, end)
     return [Value(**dict(r)) for r in rows]
 
 
 async def _latest(table: str, key: str, dataset: str | None) -> tuple[date | None, str | None]:
-    """The series' latest date and that row's frequency label (None outside labelled tables), via the index."""
+    """The series' latest date and that row's frequency label (None for price tables), via the index."""
     where, args = _filter(table, key, dataset)
-    frequency = "frequency" if table in _LABELLED else "NULL::text"
+    frequency = "frequency" if table in _VALUE_TABLES else "NULL::text"
     # table is a constant: _filter rejects anything else.
     sql = f"SELECT date, {frequency} AS frequency FROM {table} WHERE {where} ORDER BY date DESC LIMIT 1"
     async with connection() as conn:
