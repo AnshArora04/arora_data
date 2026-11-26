@@ -5,7 +5,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, country_risk_premium, crypto, damodaran_editions, equity_risk_premium, forex, fred, index, nyfed, ofr, series, sovereign_rating, sovereign_spread, sync, treasury, treasury_curve, treasury_fiscal
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")

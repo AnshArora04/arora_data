@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from arora_data import _db, _readers, catalog
+from arora_data import _readers, catalog
 
 START, END = date(2026, 1, 1), date(2026, 1, 31)
 
