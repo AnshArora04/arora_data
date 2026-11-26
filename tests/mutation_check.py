@@ -416,12 +416,18 @@ MUTATIONS = [
     ("treasury_fiscal.py", '_TABLE = "indicators.treasury_fiscal"', '_TABLE = "indicators.nyfed"'),
     ("sync.py", "treasury_fiscal = _sync(_treasury_fiscal.treasury_fiscal)", "treasury_fiscal = None"),
     ("sync.py", "treasury_fiscal_series = _sync(_treasury_fiscal.treasury_fiscal_series)", "treasury_fiscal_series = None"),
-    # ofr: as treasury_fiscal; DVP's NULL first day, 2018-05-07, sits before its first value.
+    # ofr: as fred.py's skip scan; DVP's NULL first day, 2018-05-07, sits before its first value.
     ("ofr.py", "_indicator(_TABLE, ofr_series, _HINT", "_indicator(_TABLE, ofr_series, \"OFR\""),
-    ("ofr.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "min(date) AS first_date"),
-    ("ofr.py", "min(date) FILTER (WHERE value IS NOT NULL) AS first_date", "max(date) FILTER (WHERE value IS NOT NULL) AS first_date"),
-    ("ofr.py", " ORDER BY series_id, dataset", " ORDER BY series_id DESC, dataset"),
-    ("ofr.py", "WHERE provider = 'ofr' ORDER BY", "WHERE provider = 'nyfed' ORDER BY"),
+    ("ofr.py", "AND value IS NOT NULL ORDER BY date LIMIT 1) f", "ORDER BY date LIMIT 1) f"),
+    ("ofr.py", "AND value IS NOT NULL ORDER BY date LIMIT 1) f", "AND value IS NOT NULL ORDER BY date DESC LIMIT 1) f"),
+    ("ofr.py", "AND value IS NOT NULL ORDER BY date DESC LIMIT 1) z", "ORDER BY date DESC LIMIT 1) z"),
+    ("ofr.py", "(o.dataset, o.series_id) > (s.dataset, s.series_id)",
+     "(o.dataset, o.series_id) > (s.dataset, s.series_id) AND o.series_id <> 'REPO-DVP_AR_OO-P'"),
+    ("ofr.py", " ORDER BY s.series_id, s.dataset", " ORDER BY s.series_id DESC, s.dataset"),
+    # Remove the Hedge Fund Monitor filter.
+    ("ofr.py", " WHERE s.dataset <> 'ofr/hedge_fund_monitor'\n", "\n"),
+    ("ofr.py", "(SELECT dataset, series_id FROM indicators.ofr WHERE provider = 'ofr' ORDER BY",
+     "(SELECT dataset, series_id FROM indicators.ofr WHERE provider = 'nyfed' ORDER BY"),
     ("ofr.py", '_HINT = "OFR series: use', '_HINT = "BLS series: use'),
     ("ofr.py", '_TABLE = "indicators.ofr"', '_TABLE = "indicators.nyfed"'),
     ("sync.py", "ofr = _sync(_ofr.ofr)", "ofr = None"),

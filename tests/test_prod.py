@@ -1,4 +1,5 @@
 """Tiny read-only checks against prod. Skipped when there is no .env."""
+from collections import Counter
 from datetime import date, timedelta
 from decimal import Context, Decimal
 
@@ -653,23 +654,37 @@ def test_treasury_fiscal_parts_add_up_to_the_total_except_treasurys_own_2025_08_
 
 _OFR_LATEST_SQL = """
 SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
-  FROM indicators.ofr ORDER BY series_id, date DESC
+  FROM indicators.ofr WHERE dataset <> 'ofr/hedge_fund_monitor' ORDER BY series_id, date DESC
 """
 _OFR_DATES_SQL = """
 SELECT series_id, min(date) AS first_date, max(date) AS latest_date
-  FROM indicators.ofr WHERE value IS NOT NULL GROUP BY series_id
+  FROM indicators.ofr WHERE value IS NOT NULL AND dataset <> 'ofr/hedge_fund_monitor' GROUP BY series_id
 """
 
 
 def test_ofr_series_is_every_series_with_its_latest_labels_and_value_dates():
     dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_OFR_DATES_SQL)}
-    expected = [ofr.OfrSeries(**dict(r), first_date=dates[r["series_id"]][0], latest_date=dates[r["series_id"]][1])
+    # A series with no value on any day has no dates (7 on 2026-11-25, for example NYPD-PD_SB_TOT-A).
+    expected = [ofr.OfrSeries(**dict(r), first_date=dates.get(r["series_id"], (None, None))[0],
+                              latest_date=dates.get(r["series_id"], (None, None))[1])
                 for r in query(_OFR_LATEST_SQL)]
     stored = sync.ofr_series()
     assert len(stored) >= 5 and stored == expected
     # DVP's first stored day, 2018-05-07, has no value.
     assert {s.series_id: s.first_date for s in stored}["REPO-DVP_AR_OO-P"] == date(2018, 5, 8)
     assert all(_readers._resolve(s.name, stored, ofr._HINT) is s for s in stored)
+    # The table holds the Hedge Fund Monitor, but ofr_series() does not give it until a person checks its terms.
+    assert {s.dataset for s in stored} <= {"ofr/short_term_funding", "ofr/financial_stress_index"}
+
+
+def test_ofr_series_counts_are_the_full_ofr_set_without_the_hedge_fund_monitor():
+    # OFR-FULL stores 948 series. ofr_series() gives 451 of them: not the 497 of the Hedge Fund Monitor.
+    counts = Counter((s.dataset, s.category) for s in sync.ofr_series())
+    assert counts == {("ofr/short_term_funding", "repo"): 164, ("ofr/short_term_funding", "mmf"): 42,
+                      ("ofr/short_term_funding", "nypd"): 194, ("ofr/short_term_funding", "fnyr"): 30,
+                      ("ofr/short_term_funding", "tyld"): 12, ("ofr/financial_stress_index", "fsi"): 9}
+    stored = query("SELECT count(DISTINCT series_id) AS n FROM indicators.ofr WHERE dataset = 'ofr/hedge_fund_monitor'")
+    assert stored[0]["n"] == 497
 
 
 def test_ofr_is_the_tables_values_with_its_gaps_left_out():
@@ -677,7 +692,10 @@ def test_ofr_is_the_tables_values_with_its_gaps_left_out():
     rows = query("SELECT date, value FROM indicators.ofr WHERE series_id = $1 AND date BETWEEN $2 AND $3"
                  " ORDER BY date", "REPO-DVP_AR_OO-P", start, end)
     assert any(r["value"] is None for r in rows)  # days that failed OFR's disclosure threshold
-    served = sync.ofr("dvp repo — avg rate, overnight", start, end)
+    # Use the name that the table has now. OFR-FULL changes it to the OFR name.
+    name = {s.series_id: s.name for s in sync.ofr_series()}["REPO-DVP_AR_OO-P"]
+    assert name
+    served = sync.ofr(name.upper(), start, end)
     assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
     assert {(v.series_id, v.units) for v in served} == {("REPO-DVP_AR_OO-P", "percent")}
     assert sync.ofr("repo-dvp_ar_oo-p", start, end) == served

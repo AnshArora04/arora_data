@@ -106,7 +106,7 @@ flowchart LR
   subgraph MA["Macro"]
     direction TB
     macro["<b>macro</b><br/>5 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
-    indicators["<b>indicators</b><br/>13 tables · 0.1M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr()</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.8M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr()</i>"]
   end
   subgraph EV["Events and news"]
     direction TB
@@ -141,7 +141,7 @@ pydantic models, and `arora_data.frames.to_df` turns a list of them into a Polar
 | `bea(series, start, end=None)`, `bea_series()` | Six BEA NIPA datasets, by id or name |
 | `nyfed(series, start, end=None)`, `nyfed_series()` | New York Fed reference rates (SOFR, EFFR...) and the Fed's holdings by type, by id or name |
 | `treasury_fiscal(series, start, end=None)`, `treasury_fiscal_series()` | Treasury's daily federal debt (Debt to the Penny) and its two parts, by id or name |
-| `ofr(series, start, end=None)`, `ofr_series()` | OFR's repo rates and volume (DVP, GCF, tri-party) and money market fund assets, by id or name |
+| `ofr(series, start, end=None)`, `ofr_series()` | The OFR Short-term Funding Monitor (repo, money market funds, primary dealers, reference rates, Treasury yields) and the OFR Financial Stress Index, by id or name |
 | `forex(base, quote, start, end=None)` | Daily FX bars for any currency pair |
 | `commodities(base, start, end=None, quote="USD")` | Commodity bars, in USD or any FX currency |
 | `crypto(base, start, end=None, quote="USD")` | Crypto bars, in USD or any FX currency |
@@ -181,10 +181,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 
 ## Tests
 
-448 tests in three layers:
+451 tests in three layers:
 
-- **Offline tests** (318) run against a mocked connection, so they need no database.
-- **`tests/test_prod.py`** (130) runs small read-only checks against production when credentials are present, and
+- **Offline tests** (320) run against a mocked connection, so they need no database.
+- **`tests/test_prod.py`** (131) runs small read-only checks against production when credentials are present, and
   skips otherwise.
 - **`tests/mutation_check.py`** breaks one source line at a time and confirms that some test fails. It runs the offline
   tests first, so a caught mutation costs seconds.
@@ -203,8 +203,12 @@ The New York Fed data in `function_nyfed.ipynb` stays under the New York Fed's T
 this repository's terms, and the notebook carries its full notice. arora_data is not affiliated with the New York Fed.
 The New York Fed does not sanction, endorse, or recommend any products or services offered by arora_data.
 
-The OFR data in `function_ofr.ipynb` comes from the Office of Financial Research's Short-term Funding Monitor, and the
-notebook carries OFR's suggested citation and disclaimer. arora_data is not affiliated with or endorsed by the OFR.
+The OFR data in `function_ofr.ipynb` comes from the Office of Financial Research Short-term Funding Monitor and the
+OFR Financial Stress Index. The notebook has the OFR citation and disclaimer. Some of this data is not from OFR. The
+primary dealer statistics and the reference rates are New York Fed data, under the New York Fed terms, and the
+notebook has the New York Fed notice. The Treasury yields are Treasury data. `ofr()` does not give the OFR Hedge Fund
+Monitor until a person checks the terms of its sources. arora_data has no affiliation with the OFR or the New York
+Fed, and they do not endorse it.
 
 ## Running it
 
