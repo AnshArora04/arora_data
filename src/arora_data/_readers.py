@@ -169,6 +169,21 @@ async def _indicator_series(sql: str) -> list[IndicatorSeries]:
         return [IndicatorSeries(**dict(r)) for r in await fetch(conn, sql)]
 
 
+def _select(stored: list[IndicatorSeries], label: str, dataset: str | None, frequency: str | None) -> list[IndicatorSeries]:
+    """The stored series that have the given dataset and frequency; None keeps all. A value that no stored series has
+    raises ValueError, with label (for example "EIA") in the message."""
+    picked = stored
+    for field, want in (("dataset", dataset), ("frequency", frequency)):
+        if want is None:
+            continue
+        # The values of all the series, thus a frequency that the dataset does not have gives [], not an error.
+        known = sorted({getattr(s, field) for s in stored} - {None})
+        if want not in known:
+            raise ValueError(f"{want!r} is not a stored {label} {field}: use one of {', '.join(known)}")
+        picked = [s for s in picked if getattr(s, field) == want]
+    return picked
+
+
 async def _indicator(table: str, list_series, hint: str, series: str, start: date, end: date | None) -> list[IndicatorValue]:
     """One indicators.* series' values, read in its own dataset, gaps left out. list_series() is that table's list."""
     end = end or today_et()

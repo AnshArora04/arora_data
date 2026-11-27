@@ -22,12 +22,28 @@ def code(path):
     return [c for c in json.loads(path.read_text())["cells"] if c["cell_type"] == "code"]
 
 
-FMP = sorted(p.name for p in NOTEBOOKS.glob("*.ipynb") if _CALL.search("\n".join("".join(c["source"]) for c in code(p))))
+def fmp_notebooks(root):
+    """The notebooks under root, and under root/unfinished, that call an FMP function, as paths relative to root."""
+    paths = [*root.glob("*.ipynb"), *root.glob("unfinished/*.ipynb")]
+    return sorted(str(p.relative_to(root)) for p in paths if _CALL.search("\n".join("".join(c["source"]) for c in code(p))))
+
+
+FMP = fmp_notebooks(NOTEBOOKS)
 
 
 def test_every_fmp_function_has_its_notebook_checked():
     assert FMP_FUNCTIONS, "no function's docstring names FMP: the check below would test nothing"
-    assert {f"function_{f}.ipynb" for f in FMP_FUNCTIONS} <= set(FMP)
+    assert {f"function_{f}.ipynb" for f in FMP_FUNCTIONS} <= {Path(n).name for n in FMP}
+
+
+def test_an_fmp_notebook_in_unfinished_is_checked_and_other_notebooks_are_not(tmp_path):
+    def notebook(path, source):
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps({"cells": [{"cell_type": "code", "source": [source]}]}))
+    notebook(tmp_path / "unfinished" / "function_forex.ipynb", f"{FMP_FUNCTIONS[0]}('EUR', 'USD', start)")
+    notebook(tmp_path / "unfinished" / "function_usda.ipynb", "usda('Corn yield', start)")
+    notebook(tmp_path / "function_fred.ipynb", "fred('DGS10', start)")
+    assert fmp_notebooks(tmp_path) == [str(Path("unfinished", "function_forex.ipynb"))]
 
 
 def stdout(cell):

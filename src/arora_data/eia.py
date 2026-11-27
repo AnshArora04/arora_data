@@ -62,17 +62,7 @@ async def eia_series(dataset: str | None = None, frequency: str | None = None) -
     dataset (for example "eia/weekly_gas_storage") and frequency ("monthly" or "weekly") keep only the series that
     have that value. A value that no stored series has raises ValueError.
     """
-    stored = await _readers._indicator_series(_SERIES_SQL)
-    picked = stored
-    for field, want in (("dataset", dataset), ("frequency", frequency)):
-        if want is None:
-            continue
-        # The values of all the series, thus a frequency that the dataset does not have gives [], not an error.
-        known = sorted({getattr(s, field) for s in stored} - {None})
-        if want not in known:
-            raise ValueError(f"{want!r} is not a stored EIA {field}: use one of {', '.join(known)}")
-        picked = [s for s in picked if getattr(s, field) == want]
-    return picked
+    return _readers._select(await _readers._indicator_series(_SERIES_SQL), "EIA", dataset, frequency)
 
 
 async def eia(series: str, start: dt.date, end: dt.date | None = None) -> list[EiaValue]:
