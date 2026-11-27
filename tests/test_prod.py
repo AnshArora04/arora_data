@@ -5,7 +5,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, eia, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, eia, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal, usda
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -759,3 +759,62 @@ def test_eia_is_the_tables_values():
     assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
     assert {(v.series_id, v.units) for v in served} == {("RWTC", "$/BBL")}
     assert sync.eia("rwtc", start, end) == served
+
+
+_USDA_LATEST_SQL = """
+SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
+  FROM indicators.usda ORDER BY series_id, date DESC
+"""
+_USDA_DATES_SQL = """
+SELECT series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.usda WHERE value IS NOT NULL GROUP BY series_id
+"""
+
+
+def test_usda_series_is_every_series_with_its_latest_labels_and_value_dates():
+    dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_USDA_DATES_SQL)}
+    expected = [usda.UsdaSeries(**dict(r), first_date=dates.get(r["series_id"], (None, None))[0],
+                                latest_date=dates.get(r["series_id"], (None, None))[1])
+                for r in query(_USDA_LATEST_SQL)]
+    stored = sync.usda_series()
+    assert stored == expected
+    assert len(stored) >= 19 and {s.dataset for s in stored} >= {
+        "usda/corn", "usda/soybeans", "usda/wheat", "usda/cotton", "usda/cattle", "usda/hogs", "usda/milk"}
+    assert all(s.name and _readers._resolve(s.name, stored, usda._HINT) is s for s in stored)
+
+
+def test_usda_series_filters_give_the_series_the_table_holds_for_each_dataset_and_frequency():
+    # USDA-ADD can add series and frequencies, thus the counts come from the table at run time.
+    rows = query("SELECT dataset, frequency, count(DISTINCT series_id) AS n FROM indicators.usda GROUP BY 1, 2")
+    assert Counter((s.dataset, s.frequency) for s in sync.usda_series()) == {
+        (r["dataset"], r["frequency"]): r["n"] for r in rows}
+    for r in rows:
+        picked = sync.usda_series(dataset=r["dataset"], frequency=r["frequency"])
+        assert len(picked) == r["n"] and {(s.dataset, s.frequency) for s in picked} == {(r["dataset"], r["frequency"])}
+    with pytest.raises(ValueError, match="is not a stored USDA frequency"):
+        sync.usda_series(frequency="daily")
+
+
+def test_usda_is_the_tables_values():
+    start, end = date(2016, 1, 1), date(2025, 12, 31)
+    rows = query("SELECT date, value FROM indicators.usda WHERE series_id = 'CORN, GRAIN - PRICE RECEIVED, MEASURED IN $ / BU'"
+                 " AND date BETWEEN $1 AND $2 ORDER BY date", start, end)
+    served = sync.usda("CORN PRICE RECEIVED", start, end)
+    assert len(rows) == 10
+    assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
+    assert {(v.series_id, v.units) for v in served} == {("CORN, GRAIN - PRICE RECEIVED, MEASURED IN $ / BU", "$/BU")}
+    assert sync.usda(" corn, grain - price received, measured in $ / bu", start, end) == served
+
+
+def test_usda_annual_dates_and_first_years_are_the_ones_the_docstring_names():
+    # The docstring names these facts. A USDA-ADD load that changes them must also change the docstring.
+    annual = query("SELECT count(*) FILTER (WHERE frequency = 'annual' AND date <> date_trunc('year', date)::date)"
+                   " AS not_jan1, count(*) FILTER (WHERE frequency IS NULL) AS no_frequency FROM indicators.usda")
+    assert dict(annual[0]) == {"not_jan1": 0, "no_frequency": 0}
+    first = {s.series_id: s.first_date for s in sync.usda_series(frequency="annual")}
+    prices = {i: d for i, d in first.items() if "PRICE RECEIVED" in i}
+    assert len(prices) == 7
+    assert prices.pop("HOGS - PRICE RECEIVED, MEASURED IN $ / CWT") == date(1988, 1, 1)
+    assert set(prices.values()) == {date(1996, 1, 1)}
+    assert [(v.date.year, v.units) for v in sync.usda("HOGS - INVENTORY", date(1866, 1, 1))] == [
+        (2024, "HEAD"), (2025, "HEAD")]
