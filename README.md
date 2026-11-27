@@ -106,7 +106,7 @@ flowchart LR
   subgraph MA["Macro"]
     direction TB
     macro["<b>macro</b><br/>5 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
-    indicators["<b>indicators</b><br/>13 tables · 0.8M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr(), eia() (unfinished)</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.8M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr(), eia()</i>"]
   end
   subgraph EV["Events and news"]
     direction TB
@@ -142,7 +142,7 @@ pydantic models, and `arora_data.frames.to_df` turns a list of them into a Polar
 | `nyfed(series, start, end=None)`, `nyfed_series()` | New York Fed reference rates (SOFR, EFFR...) and the Fed's holdings by type, by id or name |
 | `treasury_fiscal(series, start, end=None)`, `treasury_fiscal_series()` | Treasury's daily federal debt (Debt to the Penny) and its two parts, by id or name |
 | `ofr(series, start, end=None)`, `ofr_series()` | The OFR Short-term Funding Monitor (repo, money market funds, primary dealers, reference rates, Treasury yields) and the OFR Financial Stress Index, by id or name |
-| `eia(series, start, end=None)`, `eia_series(dataset=None, frequency=None)` | **UNFINISHED** (see `notebooks/unfinished/README.md`). EIA energy data: monthly crude, product and Henry Hub spot prices and US crude production; weekly petroleum stocks, refinery utilization, product supplied and natural gas storage. By id or name; the series list filters by dataset or frequency |
+| `eia(series, start, end=None)`, `eia_series(dataset=None, frequency=None)` | EIA energy data: monthly crude, product and Henry Hub spot prices and US crude production; weekly petroleum stocks, refinery utilization, product supplied and natural gas storage. By id or name; the series list filters by dataset or frequency |
 | `forex(base, quote, start, end=None)` | Daily FX bars for any currency pair |
 | `commodities(base, start, end=None, quote="USD")` | Commodity bars, in USD or any FX currency |
 | `crypto(base, start, end=None, quote="USD")` | Crypto bars, in USD or any FX currency |
@@ -193,10 +193,9 @@ the stored tenors, and `cubic_par` can overshoot between them.
 ## Notebooks
 
 `notebooks/` has one notebook per reader, with outputs saved. They are the quickest way to see what each function
-returns. `notebooks/unfinished/` holds the notebooks of functions that are not finished, with the reason in its
-README.
+returns.
 
-The FRED, BLS, BEA, New York Fed, Treasury fiscal, OFR, EIA (unfinished) and Damodaran notebooks show real data, run against
+The FRED, BLS, BEA, New York Fed, Treasury fiscal, OFR, EIA and Damodaran notebooks show real data, run against
 production. The FMP-sourced notebooks (forex, commodities, crypto, index, treasury and treasury_curve) show synthetic
 data: FMP's license doesn't allow displaying its data publicly, so their outputs come from made-up data in
 `notebooks/_synthetic.py`, run through the functions' own, unchanged code.
@@ -212,9 +211,9 @@ notebook has the New York Fed notice. The Treasury yields are Treasury data. `of
 Monitor until a person checks the terms of its sources. arora_data has no affiliation with the OFR or the New York
 Fed, and they do not endorse it.
 
-The EIA data in `notebooks/unfinished/function_eia.ipynb` comes from the U.S. Energy Information Administration.
-EIA data is public domain. The notebook has the EIA acknowledgment with its date. arora_data has no affiliation with
-EIA, and EIA does not endorse it.
+The EIA data in `function_eia.ipynb` comes from the U.S. Energy Information Administration. EIA data is public
+domain. The notebook has the EIA acknowledgment with its date. arora_data has no affiliation with EIA, and EIA does
+not endorse it.
 
 ## Running it
 
