@@ -5,7 +5,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, eia, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -712,3 +712,50 @@ def test_ofr_dvp_gaps_and_negative_days_are_the_ones_the_docstring_names():
     month_ends = query("SELECT count(*) AS n FROM indicators.ofr WHERE series_id = 'MMF-MMF_TOT-M'"
                        " AND date <> (date_trunc('month', date) + interval '1 month - 1 day')::date")
     assert month_ends[0]["n"] == 0
+
+
+_EIA_LATEST_SQL = """
+SELECT DISTINCT ON (series_id) series_id, dataset, series_name AS name, units, frequency, category
+  FROM indicators.eia ORDER BY series_id, date DESC
+"""
+_EIA_DATES_SQL = """
+SELECT series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.eia WHERE value IS NOT NULL GROUP BY series_id
+"""
+
+
+def test_eia_series_is_every_series_with_its_latest_labels_and_value_dates():
+    dates = {r["series_id"]: (r["first_date"], r["latest_date"]) for r in query(_EIA_DATES_SQL)}
+    expected = [eia.EiaSeries(**dict(r), first_date=dates.get(r["series_id"], (None, None))[0],
+                              latest_date=dates.get(r["series_id"], (None, None))[1])
+                for r in query(_EIA_LATEST_SQL)]
+    stored = sync.eia_series()
+    assert stored == expected
+    assert {"RWTC", "RBRTE", "EER_EPMRU_PF4_RGC_DPG", "EER_EPD2F_PF4_Y35NY_DPG", "EER_EPLLPA_PF4_Y44MB_DPG",
+            "RNGWHHD", "MCRFPUS2"} <= {s.series_id for s in stored}
+    assert all(s.name and _readers._resolve(s.name, stored, eia._HINT) is s for s in stored)
+
+
+def test_eia_series_filters_give_the_series_the_table_holds_for_each_dataset_and_frequency():
+    # The table can get new series (EIA-ADD added the weekly ones), thus the counts come from the table at run time.
+    rows = query("SELECT dataset, frequency, count(DISTINCT series_id) AS n FROM indicators.eia GROUP BY 1, 2")
+    assert Counter((s.dataset, s.frequency) for s in sync.eia_series()) == {
+        (r["dataset"], r["frequency"]): r["n"] for r in rows}
+    for r in rows:
+        picked = sync.eia_series(dataset=r["dataset"], frequency=r["frequency"])
+        assert len(picked) == r["n"] and {(s.dataset, s.frequency) for s in picked} == {(r["dataset"], r["frequency"])}
+    for f in {r["frequency"] for r in rows}:
+        assert len(sync.eia_series(frequency=f)) == sum(r["n"] for r in rows if r["frequency"] == f)
+    with pytest.raises(ValueError, match="is not a stored EIA frequency"):
+        sync.eia_series(frequency="daily")
+
+
+def test_eia_is_the_tables_values():
+    start, end = date(2020, 1, 1), date(2020, 12, 31)
+    rows = query("SELECT date, value FROM indicators.eia WHERE series_id = 'RWTC' AND date BETWEEN $1 AND $2"
+                 " ORDER BY date", start, end)
+    served = sync.eia("WTI CRUDE SPOT (CUSHING)", start, end)
+    assert len(rows) == 12
+    assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
+    assert {(v.series_id, v.units) for v in served} == {("RWTC", "$/BBL")}
+    assert sync.eia("rwtc", start, end) == served
