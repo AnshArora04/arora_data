@@ -5,7 +5,7 @@ from decimal import Context, Decimal
 
 import pytest
 
-from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, eia, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal, usda
+from arora_data import _damodaran, _db, _readers, bea, bls, catalog, commodities, crypto, damodaran_editions, dbnomics, eia, forex, fred, index, nyfed, ofr, series, sync, treasury, treasury_curve, treasury_fiscal, usda
 from arora_data.dates import EASTERN, today_et
 
 pytestmark = pytest.mark.skipif(not _db.ENV_PATH.exists(), reason="no .env")
@@ -818,3 +818,50 @@ def test_usda_annual_dates_and_first_years_are_the_ones_the_docstring_names():
     assert set(prices.values()) == {date(1996, 1, 1)}
     assert [(v.date.year, v.units) for v in sync.usda("HOGS - INVENTORY", date(1866, 1, 1))] == [
         (2024, "HEAD"), (2025, "HEAD")]
+
+
+_DBNOMICS_LATEST_SQL = """
+SELECT * FROM (SELECT DISTINCT ON (dataset, series_id) series_id, dataset, series_name AS name, units, frequency, category
+                 FROM indicators.dbnomics ORDER BY dataset, series_id, date DESC) l
+ ORDER BY series_id, dataset
+"""
+_DBNOMICS_DATES_SQL = """
+SELECT dataset, series_id, min(date) AS first_date, max(date) AS latest_date
+  FROM indicators.dbnomics WHERE value IS NOT NULL GROUP BY dataset, series_id
+"""
+
+
+def test_dbnomics_series_is_every_series_with_its_latest_labels_value_dates_country_and_stale_flag():
+    dates = {(r["dataset"], r["series_id"]): (r["first_date"], r["latest_date"]) for r in query(_DBNOMICS_DATES_SQL)}
+    expected = []
+    for r in query(_DBNOMICS_LATEST_SQL):
+        first, latest = dates.get((r["dataset"], r["series_id"]), (None, None))
+        expected.append(dbnomics.DbnomicsSeries(
+            **dict(r), first_date=first, latest_date=latest, country=dbnomics._country(r["dataset"], r["series_id"]),
+            stale=dbnomics._stale(latest, r["frequency"], today_et())))
+    stored = sync.dbnomics_series()
+    assert stored == expected
+    # Each dataset has a country rule, thus a new dataset fails here until _AREA names it.
+    assert all(s.country for s in stored)
+    assert all(s.name and _readers._resolve(s.name, stored, dbnomics._HINT) is s for s in stored)
+
+
+def test_dbnomics_series_filters_give_the_series_the_table_holds_for_each_dataset_and_frequency():
+    rows = query("SELECT dataset, frequency, count(DISTINCT series_id) AS n FROM indicators.dbnomics GROUP BY 1, 2")
+    assert Counter((s.dataset, s.frequency) for s in sync.dbnomics_series()) == {
+        (r["dataset"], r["frequency"]): r["n"] for r in rows}
+    for r in rows:
+        picked = sync.dbnomics_series(dataset=r["dataset"], frequency=r["frequency"])
+        assert len(picked) == r["n"] and {(s.dataset, s.frequency) for s in picked} == {(r["dataset"], r["frequency"])}
+    with pytest.raises(ValueError, match="is not a stored DBnomics frequency"):
+        sync.dbnomics_series(frequency="hourly")
+
+
+def test_dbnomics_is_the_tables_values_without_the_na_rows():
+    start, end = date(1991, 1, 1), date(2000, 12, 31)
+    rows = query("SELECT date, value FROM indicators.dbnomics WHERE dataset = 'ECB/HICP'"
+                 " AND series_id = 'M.U2.N.000000.4D0.ANR' AND date BETWEEN $1 AND $2 ORDER BY date", start, end)
+    served = sync.dbnomics("m.u2.n.000000.4d0.anr", start, end)
+    assert any(r["value"] is None for r in rows) and any(r["value"] is not None for r in rows)
+    assert [(v.date, v.value) for v in served] == [(r["date"], r["value"]) for r in rows if r["value"] is not None]
+    assert {(v.series_id, v.units) for v in served} == {("M.U2.N.000000.4D0.ANR", "percent")}

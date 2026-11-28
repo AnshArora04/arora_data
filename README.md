@@ -75,7 +75,7 @@ flowchart TB
 ### The database
 
 114 tables in 19 schemas, about 112M rows (Postgres's own row estimates, November 2026). Green schemas are the
-ones `arora_data` reads; a dashed border means it reads some of their tables so far (`indicators` 7 of 13).
+ones `arora_data` reads; a dashed border means it reads some of their tables so far (`indicators` 8 of 13).
 
 ```mermaid
 flowchart LR
@@ -105,7 +105,7 @@ flowchart LR
   subgraph MA["Macro"]
     direction TB
     macro["<b>macro</b><br/>4 tables · 0.3M rows<br/><i>fred(), treasury(), Damodaran</i>"]
-    indicators["<b>indicators</b><br/>13 tables · 0.8M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr(), eia(), usda() (unfinished)</i>"]
+    indicators["<b>indicators</b><br/>13 tables · 0.8M rows<br/><i>bls(), bea(), nyfed(), treasury_fiscal(), ofr(), eia(), usda() (unfinished), dbnomics() (unfinished)</i>"]
   end
   subgraph EV["Events and news"]
     direction TB
@@ -143,6 +143,7 @@ pydantic models, and `arora_data.frames.to_df` turns a list of them into a Polar
 | `ofr(series, start, end=None)`, `ofr_series()` | The OFR Short-term Funding Monitor (repo, money market funds, primary dealers, reference rates, Treasury yields) and the OFR Financial Stress Index, by id or name |
 | `eia(series, start, end=None)`, `eia_series(dataset=None, frequency=None)` | EIA energy data: monthly crude, product and Henry Hub spot prices and US crude production; weekly petroleum stocks, refinery utilization, product supplied and natural gas storage. By id or name; the series list filters by dataset or frequency |
 | `usda(series, start, end=None)`, `usda_series(dataset=None, frequency=None)` | **UNFINISHED** (see `notebooks/unfinished/README.md`). USDA NASS agriculture data: the yearly US production, yield and price received for corn, soybeans, wheat, cotton, cattle, hogs and milk. By id or name; the series list filters by dataset or frequency |
+| `dbnomics(series, start, end=None)`, `dbnomics_series(dataset=None, frequency=None)` | **UNFINISHED** (see `notebooks/unfinished/README.md`). International macro series via DBnomics (OECD leading indicators and confidence, Eurostat, BIS, AMECO, World Bank and ECB). By id or name; the series list gives each series' country and a stale flag, and filters by dataset or frequency |
 | `forex(base, quote, start, end=None)` | Daily FX bars for any currency pair |
 | `commodities(base, start, end=None, quote="USD")` | Commodity bars, in USD or any FX currency |
 | `crypto(base, start, end=None, quote="USD")` | Crypto bars, in USD or any FX currency |
@@ -182,10 +183,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 
 ## Tests
 
-490 tests in three layers:
+524 tests in three layers:
 
-- **Offline tests** (352) run against a mocked connection, so they need no database.
-- **`tests/test_prod.py`** (138) runs small read-only checks against production when credentials are present, and
+- **Offline tests** (383) run against a mocked connection, so they need no database.
+- **`tests/test_prod.py`** (141) runs small read-only checks against production when credentials are present, and
   skips otherwise.
 - **`tests/mutation_check.py`** breaks one source line at a time and confirms that some test fails. It runs the offline
   tests first, so a caught mutation costs seconds.
@@ -196,10 +197,10 @@ the stored tenors, and `cubic_par` can overshoot between them.
 returns. `notebooks/unfinished/` holds the notebooks of functions that are not finished, with the reason in its
 README.
 
-The FRED, BLS, BEA, New York Fed, Treasury fiscal, OFR, EIA, USDA (unfinished) and Damodaran notebooks show real
-data, run against production. The FMP-sourced notebooks (forex, commodities, crypto, index, treasury and
-treasury_curve) show synthetic data: FMP's license doesn't allow displaying its data publicly, so their outputs come
-from made-up data in `notebooks/_synthetic.py`, run through the functions' own, unchanged code.
+The FRED, BLS, BEA, New York Fed, Treasury fiscal, OFR, EIA, USDA (unfinished), DBnomics (unfinished) and Damodaran
+notebooks show real data, run against production. The FMP-sourced notebooks (forex, commodities, crypto, index,
+treasury and treasury_curve) show synthetic data: FMP's license doesn't allow displaying its data publicly, so their
+outputs come from made-up data in `notebooks/_synthetic.py`, run through the functions' own, unchanged code.
 
 The New York Fed data in `function_nyfed.ipynb` stays under the New York Fed's Terms of Use at newyorkfed.org, not
 this repository's terms, and the notebook carries its full notice. arora_data is not affiliated with the New York Fed.
@@ -219,6 +220,13 @@ not endorse it.
 The USDA data in `notebooks/unfinished/function_usda.ipynb` comes from the USDA National Agricultural Statistics
 Service (NASS) Quick Stats. This product uses the NASS API but is not endorsed or certified by NASS. arora_data has
 no affiliation with USDA or NASS.
+
+The DBnomics data in `notebooks/unfinished/function_dbnomics.ipynb` is retrieved via DBnomics. DBnomics' own
+datasets are under the Open Database License (ODbL), and each series keeps the licence of its original provider:
+OECD (CC BY 4.0), Eurostat (free reuse with the source acknowledged), BIS (free use with BIS cited; a commercial
+product must not charge its users more because the BIS data is in it), European Commission AMECO (free reuse),
+World Bank (CC BY 4.0) and ECB (free reuse with the source quoted). The notebook has these terms. arora_data has no
+affiliation with DBnomics or with these providers, and they do not endorse it.
 
 ## Running it
 
